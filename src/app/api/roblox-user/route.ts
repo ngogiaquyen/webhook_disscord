@@ -15,6 +15,8 @@ export async function GET(request: Request) {
   const result: any = {
     debug: {},
     basic: null,
+    accountAgeDays: null,
+    avatarHeadshotUrl: null,
     robux: 0,
     pendingRobux: 0,
     rap: 0,
@@ -28,7 +30,8 @@ export async function GET(request: Request) {
 
   const commonHeaders = {
     Accept: "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   };
 
   try {
@@ -52,6 +55,21 @@ export async function GET(request: Request) {
       result.accountAgeDays = Math.floor((Date.now() - new Date(userData.created).getTime()) / 86400000);
     } else {
       result.debug.basic = `Fail ${userRes.status} - ${await userRes.text().catch(() => "no body")}`;
+    }
+
+    // Avatar headshot (public) -> tránh CORS bằng cách proxy qua server
+    try {
+      const thumbRes = await fetch(
+        `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=420x420&format=Png&isCircular=false`,
+        { headers: commonHeaders, cache: "no-store" }
+      );
+      console.log(`[DEBUG] Headshot API: ${thumbRes.status}`);
+      if (thumbRes.ok) {
+        const thumbJson = await thumbRes.json();
+        result.avatarHeadshotUrl = thumbJson?.data?.[0]?.imageUrl || null;
+      }
+    } catch (e: any) {
+      console.error("[DEBUG] Headshot fetch error:", e.message);
     }
 
     if (mode === "full" && cookieRaw) {
@@ -102,16 +120,20 @@ export async function GET(request: Request) {
       const robuxData = await safeFetch("https://economy.roblox.com/v1/user/currency");
       if (robuxData) result.robux = robuxData.robux || 0;
 
-      // Pending (thay vì v2/transaction-totals, thử v1 nếu fail)
+      // Pending
       const pendingData = await safeFetch(
         `https://economy.roblox.com/v2/users/${userId}/transaction-totals?timeFrame=Month&transactionType=summary`
       );
       if (pendingData) result.pendingRobux = pendingData.pendingRobuxTotal || 0;
 
       // Inventory + RAP (pagination)
-      let rap = 0, limiteds = 0, cursor: string | null = null;
+      let rap = 0,
+        limiteds = 0,
+        cursor: string | null = null;
       do {
-        const invUrl = `https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?sortOrder=Asc&limit=100${cursor ? `&cursor=${cursor}` : ""}`;
+        const invUrl = `https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?sortOrder=Asc&limit=100${
+          cursor ? `&cursor=${cursor}` : ""
+        }`;
         const invData = await safeFetch(invUrl);
         if (invData) {
           limiteds += invData.data?.length || 0;
@@ -120,7 +142,7 @@ export async function GET(request: Request) {
           });
           cursor = invData.nextPageCursor;
         } else {
-          break; // 403 privacy → dừng
+          break;
         }
       } while (cursor);
       result.rap = rap;
@@ -134,13 +156,12 @@ export async function GET(request: Request) {
         result.ownedGroups = groupsData.data?.filter((g: any) => g.role?.rank === 255)?.length || 0;
       }
 
-      // Email & 2FA - nhiều khả năng deprecated → giữ fallback
-      // Nếu muốn thử: dùng https://accountinformation.roblox.com/v1/birthdate (public) hoặc bỏ
+      // (Email / 2FA bỏ qua để tránh đụng endpoint nhạy cảm)
     }
 
     return NextResponse.json(result);
   } catch (err: any) {
     console.error("[DEBUG] Global API error:", err.message);
-    return NextResponse.json(result, { status: 200 }); // vẫn trả về dù lỗi, để client không crash
+    return NextResponse.json(result, { status: 200 });
   }
 }

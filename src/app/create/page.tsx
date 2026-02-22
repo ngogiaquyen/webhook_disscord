@@ -7,11 +7,6 @@ import ConstellationBackground from "@/components/ConstellationBackground";
 
 type StatusType = "idle" | "loading" | "success" | "error";
 
-export const metadata = {
-  title: "Create Webhook Directory | Bloxtools",
-  description:
-    "Create a directory and connect a Discord webhook with Bloxtools. Quickly generate unique slugs and link them to your own webhooks.",
-};
 
 export default function CreateAccountPage() {
   const [directory, setDirectory] = useState("");
@@ -93,10 +88,9 @@ export default function CreateAccountPage() {
 
         <div className="bg-[#121212] border border-[#1e1e1e] rounded-2xl p-8 w-full shadow-2xl">
           <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold mb-2">Create Directory</h1>
+            <h1 className="text-2xl font-bold mb-2">Create Account</h1>
             <p className="text-gray-400 text-sm">
-              Save a directory and connect it to a Discord webhook. Use this slug-based page to handle your
-              automations.
+              Create your autohar with our generator
             </p>
           </div>
 
@@ -118,13 +112,13 @@ export default function CreateAccountPage() {
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm font-medium text-gray-300">
                 <Folder className="w-4 h-4 text-red-500" />
-                Directory
+                Directory Name
               </label>
               <input
                 value={directory}
                 onChange={(e) => setDirectory(e.target.value)}
                 type="text"
-                placeholder="e.g. my-directory_01"
+                placeholder="Choose a unique name"
                 className={`w-full bg-[#1a1a1a] border rounded-lg px-4 py-3 text-sm focus:outline-none transition-colors placeholder:text-gray-600 ${
                   isValidDirectory ? "border-[#2a2a2a] focus:border-red-500" : "border-red-500 focus:border-red-500"
                 }`}
@@ -160,15 +154,7 @@ export default function CreateAccountPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-400">
-            View page by slug:{" "}
-            <Link
-              href={directory ? `/${directory}` : "/create"}
-              className="text-red-500 hover:text-red-400 font-medium"
-            >
-              /{directory || "<directory>"}
-            </Link>
-          </div>
+          
         </div>
       </div>
     </div>
