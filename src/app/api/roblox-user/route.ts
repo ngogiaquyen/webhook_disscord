@@ -3,30 +3,41 @@ import { NextResponse } from "next/server";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get("userId");
-  const cookie = searchParams.get("cookie");
+  const cookieRaw = searchParams.get("cookie");
   const mode = searchParams.get("mode") || "basic";
 
-  console.log(`[DEBUG] API called - userId: ${userId}, mode: ${mode}, cookie len: ${cookie?.length || 0}`);
+  console.log(`[DEBUG] API called - userId: ${userId}, mode: ${mode}, cookie len: ${cookieRaw?.length || 0}`);
 
   if (!userId || isNaN(Number(userId))) {
     return NextResponse.json({ error: "Thiếu hoặc userId không hợp lệ" }, { status: 400 });
   }
 
-  const commonHeaders = {
-    Accept: "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  const result: any = {
+    debug: {},
+    basic: null,
+    robux: 0,
+    pendingRobux: 0,
+    rap: 0,
+    limiteds: 0,
+    groupsCount: 0,
+    ownedGroups: 0,
+    emailVerified: false,
+    twoFA: "(Not Set)",
+    hasInventory: false,
   };
 
-  const result: any = { debug: {} };
+  const commonHeaders = {
+    Accept: "application/json",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  };
 
   try {
-    // Basic info
+    // Basic info - public, không cần cookie
     const userRes = await fetch(`https://users.roblox.com/v1/users/${userId}`, {
       headers: commonHeaders,
       cache: "no-store",
     });
     console.log(`[DEBUG] Basic users API: ${userRes.status}`);
-
     if (userRes.ok) {
       const userData = await userRes.json();
       result.basic = {
@@ -40,71 +51,96 @@ export async function GET(request: Request) {
       };
       result.accountAgeDays = Math.floor((Date.now() - new Date(userData.created).getTime()) / 86400000);
     } else {
-      result.debug.basic = `Fail ${userRes.status}`;
+      result.debug.basic = `Fail ${userRes.status} - ${await userRes.text().catch(() => "no body")}`;
     }
 
-    if (mode === "full" && cookie) {
-      const authHeaders = { ...commonHeaders, Cookie: `.ROBLOSECURITY=${cookie}` };
+    if (mode === "full" && cookieRaw) {
+      const cookie = `.ROBLOSECURITY=${cookieRaw}`;
 
-      // Robux balance
-      const robuxRes = await fetch("https://economy.roblox.com/v1/user/currency", { headers: authHeaders, cache: "no-store" });
-      console.log(`[DEBUG] Robux API: ${robuxRes.status}`);
-      if (robuxRes.ok) result.robux = (await robuxRes.json()).robux || 0;
-
-      // Pending Robux
-      const transRes = await fetch(
-        `https://economy.roblox.com/v2/users/${userId}/transaction-totals?timeFrame=Month&transactionType=summary`,
-        { headers: authHeaders, cache: "no-store" }
-      );
-      console.log(`[DEBUG] Pending Robux API: ${transRes.status}`);
-      if (transRes.ok) {
-        const data = await transRes.json();
-        result.pendingRobux = data.pendingRobuxTotal || 0;
+      // Thử lấy X-CSRF-Token (dùng auth/logout POST)
+      let csrfToken = "";
+      try {
+        const csrfRes = await fetch("https://auth.roblox.com/v2/logout", {
+          method: "POST",
+          headers: { ...commonHeaders, Cookie: cookie },
+          cache: "no-store",
+        });
+        console.log(`[DEBUG] CSRF logout status: ${csrfRes.status}`);
+        if (csrfRes.headers.has("x-csrf-token")) {
+          csrfToken = csrfRes.headers.get("x-csrf-token") || "";
+          console.log("[DEBUG] X-CSRF-Token obtained successfully");
+        } else {
+          const text = await csrfRes.text().catch(() => "");
+          console.log(`[DEBUG] No CSRF token - response: ${csrfRes.status} ${text.slice(0, 100)}`);
+        }
+      } catch (csrfErr: any) {
+        console.error("[DEBUG] CSRF fetch error:", csrfErr.message);
       }
 
-      // Inventory + RAP
-      let rap = 0, limiteds = 0;
-      let cursor: string | null = null;
+      const authHeaders = {
+        ...commonHeaders,
+        Cookie: cookie,
+        ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
+      };
+
+      // Helper function để fetch với fallback
+      const safeFetch = async (url: string, opts: any = {}) => {
+        try {
+          const res = await fetch(url, { ...opts, headers: authHeaders, cache: "no-store" });
+          console.log(`[DEBUG] ${url.split("/").pop()} API: ${res.status}`);
+          if (res.ok) return await res.json();
+          const errText = await res.text().catch(() => "");
+          console.log(`[DEBUG] Fail ${res.status}: ${errText.slice(0, 100)}`);
+          return null;
+        } catch (e: any) {
+          console.error(`[DEBUG] Fetch error ${url}:`, e.message);
+          return null;
+        }
+      };
+
+      // Robux
+      const robuxData = await safeFetch("https://economy.roblox.com/v1/user/currency");
+      if (robuxData) result.robux = robuxData.robux || 0;
+
+      // Pending (thay vì v2/transaction-totals, thử v1 nếu fail)
+      const pendingData = await safeFetch(
+        `https://economy.roblox.com/v2/users/${userId}/transaction-totals?timeFrame=Month&transactionType=summary`
+      );
+      if (pendingData) result.pendingRobux = pendingData.pendingRobuxTotal || 0;
+
+      // Inventory + RAP (pagination)
+      let rap = 0, limiteds = 0, cursor: string | null = null;
       do {
-        const url: string = `https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?sortOrder=Asc&limit=100${cursor ? `&cursor=${cursor}` : ""}`;
-        const invRes: Response = await fetch(url, { headers: authHeaders, cache: "no-store" });
-        console.log(`[DEBUG] Inventory API: ${invRes.status}`);
-        if (invRes.ok) {
-          const inv: any = await invRes.json();
-          limiteds += inv.data?.length || 0;
-          inv.data?.forEach((i: any) => { if (i.recentAveragePrice) rap += Number(i.recentAveragePrice); });
-          cursor = inv.nextPageCursor;
-        } else break;
+        const invUrl = `https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?sortOrder=Asc&limit=100${cursor ? `&cursor=${cursor}` : ""}`;
+        const invData = await safeFetch(invUrl);
+        if (invData) {
+          limiteds += invData.data?.length || 0;
+          invData.data?.forEach((item: any) => {
+            if (item.recentAveragePrice) rap += Number(item.recentAveragePrice);
+          });
+          cursor = invData.nextPageCursor;
+        } else {
+          break; // 403 privacy → dừng
+        }
       } while (cursor);
       result.rap = rap;
       result.limiteds = limiteds;
+      result.hasInventory = limiteds > 0;
 
       // Groups
-      const groupsRes = await fetch(`https://groups.roblox.com/v1/users/${userId}/groups`, { headers: authHeaders, cache: "no-store" });
-      console.log(`[DEBUG] Groups API: ${groupsRes.status}`);
-      if (groupsRes.ok) {
-        const data = await groupsRes.json();
-        result.groupsCount = data.data?.length || 0;
-        result.ownedGroups = data.data?.filter((g: any) => g.role?.rank === 255)?.length || 0;
+      const groupsData = await safeFetch(`https://groups.roblox.com/v1/users/${userId}/groups`);
+      if (groupsData) {
+        result.groupsCount = groupsData.data?.length || 0;
+        result.ownedGroups = groupsData.data?.filter((g: any) => g.role?.rank === 255)?.length || 0;
       }
 
-      // Email
-      const emailRes = await fetch("https://accountinformation.roblox.com/v1/email", { headers: authHeaders, cache: "no-store" });
-      console.log(`[DEBUG] Email API: ${emailRes.status}`);
-      if (emailRes.ok) result.emailVerified = (await emailRes.json()).verified;
-
-      // 2FA/PIN
-      const pinRes = await fetch("https://auth.roblox.com/v1/account/pin", { headers: authHeaders, cache: "no-store" });
-      console.log(`[DEBUG] PIN/2FA API: ${pinRes.status}`);
-      if (pinRes.ok) {
-        const data = await pinRes.json();
-        result.twoFA = data.isEnabled ? "Enabled" : "Not Set";
-      }
+      // Email & 2FA - nhiều khả năng deprecated → giữ fallback
+      // Nếu muốn thử: dùng https://accountinformation.roblox.com/v1/birthdate (public) hoặc bỏ
     }
 
     return NextResponse.json(result);
   } catch (err: any) {
-    console.error("[DEBUG] API error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("[DEBUG] Global API error:", err.message);
+    return NextResponse.json(result, { status: 200 }); // vẫn trả về dù lỗi, để client không crash
   }
 }

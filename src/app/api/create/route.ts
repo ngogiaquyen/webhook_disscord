@@ -23,64 +23,52 @@ export async function POST(req: Request) {
     const webhookUrl = (body.webhookUrl || "").trim();
 
     if (!directory) {
-      return NextResponse.json({ ok: false, error: "Directory is required" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Directory is required." }, { status: 400 });
     }
 
     if (!isValidDirectory(directory)) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Directory chỉ cho phép a-zA-Z0-9 _ - và không có dấu cách.",
+          error: "Directory may only contain a-z, A-Z, 0-9, underscore (_) and dash (-), with no spaces.",
         },
         { status: 400 },
       );
     }
 
     if (!webhookUrl) {
-      return NextResponse.json({ ok: false, error: "Webhook URL is required" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Webhook URL is required." }, { status: 400 });
     }
 
     const siteUrl = getSiteUrl();
     if (!siteUrl) {
       return NextResponse.json(
-        { ok: false, error: "Thiếu NEXT_PUBLIC_SITE_URL trong env" },
+        { ok: false, error: "Missing NEXT_PUBLIC_SITE_URL in environment variables." },
         { status: 500 },
-      );
-    }
-
-    // Insert into DB (option A: error if directory exists)
-    const { error: insertError } = await supabaseAdmin
-      .from("directories")
-      .insert({
-        slug: directory.trim(),          // dir từ form là directory người dùng nhập
-        webhook_url: webhookUrl.trim(),
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      const msg = insertError.message || "Insert failed";
-      const isDuplicate =
-        insertError.code === "23505" || /duplicate key/i.test(msg) || /unique/i.test(msg);
-
-      return NextResponse.json(
-        { ok: false, error: isDuplicate ? "Directory đã tồn tại" : msg },
-        { status: isDuplicate ? 409 : 500 },
       );
     }
 
     const fullLink = `${siteUrl}/${encodeURIComponent(directory)}`;
 
-    // Send Discord notification to the provided webhook URL
+    // Send Discord notification first, only save to DB if Discord succeeds
     const discordPayload = {
       content: null,
       embeds: [
         {
-          title: "✅ Create thành công",
+          title: "✅ Directory created successfully",
           color: 0x22c55e,
+          description: "A new Bloxtools directory has been created.",
           fields: [
-            { name: "Directory", value: directory, inline: true },
-            { name: "Link", value: fullLink, inline: false },
+            {
+              name: "Directory",
+              value: `\`\`\`\n${directory}\n\`\`\``,
+              inline: true,
+            },
+            {
+              name: "Link",
+              value: `\`\`\`\n${fullLink}\n\`\`\``,
+              inline: false,
+            },
           ],
           timestamp: new Date().toISOString(),
         },
@@ -94,15 +82,34 @@ export async function POST(req: Request) {
     });
 
     if (!discordRes.ok) {
-      // DB inserted but webhook failed
+      // Discord failed, don't save to DB
       return NextResponse.json(
         {
           ok: false,
-          error: `Lưu DB thành công nhưng gửi Discord thất bại: ${discordRes.status}`,
-          directory,
-          link: fullLink,
+          error: `Failed to send to Discord: ${discordRes.status}. Directory not saved.`,
         },
         { status: 502 },
+      );
+    }
+
+    // Discord succeeded, now insert into DB
+    const { error: insertError } = await supabaseAdmin
+      .from("directories")
+      .insert({
+        slug: directory.trim(),
+        webhook_url: webhookUrl.trim(),
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      const msg = insertError.message || "Insert failed.";
+      const isDuplicate =
+        insertError.code === "23505" || /duplicate key/i.test(msg) || /unique/i.test(msg);
+
+      return NextResponse.json(
+        { ok: false, error: isDuplicate ? "Directory already exists." : msg },
+        { status: isDuplicate ? 409 : 500 },
       );
     }
 
