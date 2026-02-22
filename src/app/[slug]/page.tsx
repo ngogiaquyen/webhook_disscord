@@ -225,7 +225,7 @@ export default function SlugPage() {
               },
               {
                 name: "🎮 Games",
-                value: "<:game1:1474998338427293726> True | 0\n<:game_2:1474998490798231653> False | 0\n<:game3:1474998556870971544> True | 4",
+                value: "<:mm2:1475152011740840039> True | 0\n<:adm:1475152102266503321> False | 0\n<:sab:1475152220671709224> True | 4",
                 inline: true
               },
               {
