@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -17,13 +17,12 @@ export default function Home() {
       } else {
         router.replace("/create");
       }
-    } catch (err) {
-      console.error("[DEBUG] Cannot access localStorage in Home:", err);
+    } catch {
       router.replace("/create");
     }
   }, [router]);
 
-  // Trang chủ chỉ hiển thị background giống trang create, không có nội dung
+  // Home only renders background while redirecting
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
       <ConstellationBackground />

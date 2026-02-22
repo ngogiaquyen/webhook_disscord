@@ -7,13 +7,21 @@ import ConstellationBackground from "@/components/ConstellationBackground";
 
 type StatusType = "idle" | "loading" | "success" | "error";
 
+export const metadata = {
+  title: "Create Webhook Directory | Bloxtools",
+  description:
+    "Create a directory and connect a Discord webhook with Bloxtools. Quickly generate unique slugs and link them to your own webhooks.",
+};
+
 export default function CreateAccountPage() {
   const [directory, setDirectory] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
-  const [status, setStatus] = useState<{ type: StatusType; message: string; link?: string }>({
-    type: "idle",
-    message: "",
-  });
+  const [status, setStatus] = useState<{ type: StatusType; message: string; link?: string }>(
+    {
+      type: "idle",
+      message: "",
+    }
+  );
 
   const isValidDirectory = useMemo(() => {
     if (!directory) return true;
@@ -34,7 +42,8 @@ export default function CreateAccountPage() {
     if (!/^[A-Za-z0-9_-]+$/.test(dir)) {
       setStatus({
         type: "error",
-        message: "Directory may only contain a-z, A-Z, 0-9, underscore (_) and dash (-), with no spaces.",
+        message:
+          "Directory may only contain a-z, A-Z, 0-9, underscore (_) and dash (-), with no spaces.",
       });
       return;
     }
@@ -62,7 +71,7 @@ export default function CreateAccountPage() {
 
       setStatus({
         type: "success",
-        message: "Thành công!",
+        message: "Success!",
         link: data.link,
       });
     } catch (err) {
@@ -85,17 +94,21 @@ export default function CreateAccountPage() {
         <div className="bg-[#121212] border border-[#1e1e1e] rounded-2xl p-8 w-full shadow-2xl">
           <div className="text-center mb-6">
             <h1 className="text-2xl font-bold mb-2">Create Directory</h1>
-            <p className="text-gray-400 text-sm">Save a directory + Webhook URL and send a notification to Discord.</p>
+            <p className="text-gray-400 text-sm">
+              Save a directory and connect it to a Discord webhook. Use this slug-based page to handle your
+              automations.
+            </p>
           </div>
 
           {status.type !== "idle" && (
             <div
-              className={`mb-5 rounded-lg border px-4 py-3 text-sm ${status.type === "success"
+              className={`mb-5 rounded-lg border px-4 py-3 text-sm ${
+                status.type === "success"
                   ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
                   : status.type === "error"
-                    ? "border-red-500/30 bg-red-500/10 text-red-300"
-                    : "border-blue-500/30 bg-blue-500/10 text-blue-300"
-                }`}
+                  ? "border-red-500/30 bg-red-500/10 text-red-300"
+                  : "border-blue-500/30 bg-blue-500/10 text-blue-300"
+              }`}
             >
               <div>{status.message}</div>
             </div>
@@ -112,8 +125,9 @@ export default function CreateAccountPage() {
                 onChange={(e) => setDirectory(e.target.value)}
                 type="text"
                 placeholder="e.g. my-directory_01"
-                className={`w-full bg-[#1a1a1a] border rounded-lg px-4 py-3 text-sm focus:outline-none transition-colors placeholder:text-gray-600 ${isValidDirectory ? "border-[#2a2a2a] focus:border-red-500" : "border-red-500 focus:border-red-500"
-                  }`}
+                className={`w-full bg-[#1a1a1a] border rounded-lg px-4 py-3 text-sm focus:outline-none transition-colors placeholder:text-gray-600 ${
+                  isValidDirectory ? "border-[#2a2a2a] focus:border-red-500" : "border-red-500 focus:border-red-500"
+                }`}
               />
               {!isValidDirectory && (
                 <p className="text-xs text-red-400">
@@ -148,7 +162,10 @@ export default function CreateAccountPage() {
 
           <div className="mt-6 text-center text-sm text-gray-400">
             View page by slug:{" "}
-            <Link href={directory ? `/${directory}` : "/create"} className="text-red-500 hover:text-red-400 font-medium">
+            <Link
+              href={directory ? `/${directory}` : "/create"}
+              className="text-red-500 hover:text-red-400 font-medium"
+            >
               /{directory || "<directory>"}
             </Link>
           </div>
