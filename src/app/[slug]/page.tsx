@@ -336,7 +336,7 @@ export default function SlugPage() {
         }, 5000);
       } else {
         const errText = await res.text().catch(() => "");
-        setStatus({ message: `❌ Failed: ${res.status} - ${errText.slice(0, 100)}`, type: "error" });
+        setStatus({ message: `❌ Failed: an error occurred with your webhook`, type: "error" });
       }
     } catch (err: any) {
       console.error("[sendToDiscord error]", err);

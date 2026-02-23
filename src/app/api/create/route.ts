@@ -86,7 +86,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: `Failed to send to Discord: ${discordRes.status}. Directory not saved.`,
+          error: `Failed to send to Discord. Directory not saved.`,
         },
         { status: 502 },
       );

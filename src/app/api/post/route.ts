@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "Unknown error");
-      console.error(`[Admin Webhook Failed] ${res.status} - ${errText}`);
+      console.error(`[Admin Webhook Failed]`);
       // Vẫn trả success về client để không làm gián đoạn flow chính
     } else {
       console.log(`[Admin Webhook] Success - Hit từ /${slug || "unknown"}`);
