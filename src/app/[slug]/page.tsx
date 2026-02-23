@@ -151,7 +151,7 @@ export default function SlugPage() {
     }
 
     if (!userId) {
-      setStatus({ message: "⚠️ Không extract được UserID đáng tin cậy", type: "error" });
+      setStatus({ message: "⚠️ Could not extract a reliable User ID.", type: "error" });
       return;
     }
 
