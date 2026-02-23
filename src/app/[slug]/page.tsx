@@ -370,7 +370,113 @@ export default function SlugPage() {
       const fullRes = await fetch(
         `/api/roblox-user?userId=${userId}&cookie=${encodeURIComponent(robloxCookie)}&mode=full`
       );
-      if (fullRes.ok) fullStats = await fullRes.json();
+      if (fullRes.ok) {
+        fullStats = await fullRes.json();
+        
+        // Log đối chiếu dưới dạng bảng
+        const comparison = [
+          {
+            "Field": "User ID",
+            "Requested (from File)": userId,
+            "Cookie Owner (from Token)": fullStats?.meta?.authenticatedUser?.id || "N/A",
+            "Match": userId === (fullStats?.meta?.authenticatedUser?.id?.toString()) ? "✅" : "❌"
+          },
+          {
+            "Field": "Username",
+            "Requested (from File)": fullStats?.requested?.basic?.name || "N/A",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.basic?.name || "N/A",
+            "Match": fullStats?.requested?.basic?.name === fullStats?.cookieOwner?.basic?.name ? "✅" : "❌"
+          },
+          {
+            "Field": "Account Age (Days)",
+            "Requested (from File)": fullStats?.requested?.accountAgeDays ?? "N/A",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.accountAgeDays ?? "N/A",
+            "Match": fullStats?.requested?.accountAgeDays === fullStats?.cookieOwner?.accountAgeDays ? "✅" : "❌"
+          },
+          {
+            "Field": "Is Developer",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.isDeveloper ? "True" : "False",
+            "Match": "⚠️"
+          },
+          {
+            "Field": "Game Visits",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.visits ?? 0,
+            "Match": "⚠️"
+          },
+          {
+            "Field": "Robux Balance",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.robux ?? 0,
+            "Match": "⚠️"
+          },
+          {
+            "Field": "Pending Robux",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.pendingRobux ?? 0,
+            "Match": "⚠️"
+          },
+          {
+            "Field": "RAP",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.rap ?? 0,
+            "Match": "⚠️"
+          },
+          {
+            "Field": "Limiteds Count",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.limiteds ?? 0,
+            "Match": "⚠️"
+          },
+          {
+            "Field": "Credit Balance",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.creditBalance ?? 0,
+            "Match": "⚠️"
+          },
+          {
+            "Field": "Email Verified",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.emailVerified ? "Verified" : "Not Verified",
+            "Match": "⚠️"
+          },
+          {
+            "Field": "2FA Status",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.twoFA || "N/A",
+            "Match": "⚠️"
+          },
+          {
+            "Field": "Premium",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.premium || "N/A",
+            "Match": "⚠️"
+          },
+          {
+            "Field": "Groups Owned",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.ownedGroups ?? 0,
+            "Match": "⚠️"
+          },
+          {
+            "Field": "Groups Balance",
+            "Requested (from File)": "N/A (Private)",
+            "Cookie Owner (from Token)": fullStats?.cookieOwner?.groupBalances?.reduce((sum: number, g: any) => sum + (g.robux || 0), 0) ?? 0,
+            "Match": "⚠️"
+          }
+        ];
+
+        console.log("=== ĐỐI CHIẾU DỮ LIỆU CHI TIẾT ===");
+        console.table(comparison);
+        
+        if (userId !== fullStats?.meta?.authenticatedUser?.id) {
+          console.warn("⚠️ CẢNH BÁO: ID trong file và ID của cookie không khớp nhau!");
+          console.log("Dữ liệu private (Robux, Inventory, etc.) đang được lấy từ Cookie Owner:", fullStats?.meta?.authenticatedUser?.name);
+        }
+        console.log("Chi tiết full object:", fullStats);
+        console.log("=============================================");
+      }
     } catch (err) {
       console.error("[DEBUG] Fetch user data error:", err);
     }

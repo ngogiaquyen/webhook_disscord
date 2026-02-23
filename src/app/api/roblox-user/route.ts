@@ -1,23 +1,64 @@
-// app/api/roblox-user/route.ts
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  let userId = searchParams.get("userId");
+  let requestedUserId = searchParams.get("userId"); // giữ tên biến để phân biệt
   const cookieRaw = searchParams.get("cookie");
   const mode = searchParams.get("mode") || "basic";
 
   console.log({
-    requestedUserId: userId,
+    requestedUserId,
     cookieRaw: cookieRaw ? "[REDACTED]" : null,
     mode,
   });
 
-  if (!userId || isNaN(Number(userId))) {
+  if (!requestedUserId || isNaN(Number(requestedUserId))) {
     return NextResponse.json({ error: "Thiếu hoặc userId không hợp lệ" }, { status: 400 });
   }
 
   const result: any = {
+    meta: {
+      requestedUserId,
+      authenticatedUser: null as null | { id: string; name?: string; displayName?: string },
+      effectiveUserId: requestedUserId,
+    },
+
+    // Public/basic (the userId from query / extracted from file)
+    requested: {
+      basic: null,
+      accountAgeDays: null,
+      avatarHeadshotUrl: null,
+    },
+
+    // Full/private (by default: cookie owner when cookie provided)
+    cookieOwner: {
+      basic: null,
+      accountAgeDays: null,
+      avatarHeadshotUrl: null,
+      robux: null,
+      pendingRobux: null,
+      summary: null,
+      premium: "N/A",
+      creditBalance: null,
+      groupBalances: [],
+      rap: null,
+      limiteds: null,
+      hasInventory: null,
+      groupsCount: null,
+      ownedGroups: null,
+      emailVerified: null,
+      twoFA: null,
+      games: [],
+      gamesCount: null,
+      visits: null,
+      isDeveloper: null,
+      mm2_count: null,
+      adm_count: null,
+      sab_count: null,
+      note: null,
+    },
+
+    // Backward-compatible fields (keep existing clients working)
     basic: null,
     accountAgeDays: null,
     avatarHeadshotUrl: null,
@@ -51,23 +92,27 @@ export async function GET(request: Request) {
   };
 
   try {
-    // Basic info (public)
+    // Basic info (public) - dùng requestedUserId trước
+    let userId = requestedUserId; // mặc định
+
     const userRes = await fetch(`https://users.roblox.com/v1/users/${userId}`, {
       headers: commonHeaders,
       cache: "no-store",
     });
     if (userRes.ok) {
       const userData = await userRes.json();
+      result.requested.basic = userData;
       result.basic = userData;
-      // console.log("user data: ", userData);
       if (userData.created) {
-        result.accountAgeDays = Math.floor(
+        const age = Math.floor(
           (Date.now() - new Date(userData.created).getTime()) / 86400000
         );
+        result.requested.accountAgeDays = age;
+        result.accountAgeDays = age;
       }
     }
 
-    // Avatar headshot
+    // Avatar headshot - cũng dùng userId ban đầu
     try {
       const thumbRes = await fetch(
         `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=420x420&format=Png&isCircular=false`,
@@ -75,10 +120,13 @@ export async function GET(request: Request) {
       );
       if (thumbRes.ok) {
         const thumbJson = await thumbRes.json();
-        result.avatarHeadshotUrl = thumbJson?.data?.[0]?.imageUrl || null;
+        const url = thumbJson?.data?.[0]?.imageUrl || null;
+        result.requested.avatarHeadshotUrl = url;
+        result.avatarHeadshotUrl = url;
       }
     } catch {}
 
+    // Nếu có cookie và mode full → chuyển sang dùng userId của chủ cookie
     if (mode === "full" && cookieRaw) {
       const cookie = `.ROBLOSECURITY=${cookieRaw}`;
 
@@ -102,203 +150,277 @@ export async function GET(request: Request) {
 
       const safeFetch = async (url: string, opts: any = {}) => {
         try {
+          // Chỉ sử dụng proxy cho các request KHÔNG dùng Cookie/Auth
+          // Hoặc nếu endpoint bị chặn ở môi trường server hiện tại.
+          // NHƯNG với Robux (economy), Billing (credit) thì nên dùng thẳng roblox.com
+          // để tránh proxy làm mất/lỗi Header Cookie hoặc trả về dữ liệu cache sai.
           let fetchUrl = url;
-          if (
-            !url.includes("inventory.roblox.com") &&
-            !url.includes("accountsettings.roblox.com") &&
-            !url.includes("economy.roblox.com") &&
-            !url.includes("premiumfeatures.roblox.com") &&
-            !url.includes("billing.roblox.com")
-          ) {
-            fetchUrl = url.replace(/roblox\.com/g, "roproxy.com");
+          
+          // Danh sách các domain nhạy cảm nên thử fetch trực tiếp trước
+          const isSensitive = 
+            url.includes("economy.roblox.com") || 
+            url.includes("billing.roblox.com") || 
+            url.includes("accountsettings.roblox.com") ||
+            url.includes("auth.roblox.com");
+
+          // Nếu không nhạy cảm (như games/inventory công khai) thì mới dùng proxy để tránh rate limit
+          if (!isSensitive) {
+             if (
+              !url.includes("inventory.roblox.com") &&
+              !url.includes("accountsettings.roblox.com") &&
+              !url.includes("economy.roblox.com") &&
+              !url.includes("premiumfeatures.roblox.com") &&
+              !url.includes("billing.roblox.com")
+            ) {
+              fetchUrl = url.replace(/roblox\.com/g, "roproxy.com");
+            }
           }
 
-          const res = await fetch(fetchUrl, { ...opts, headers: authHeaders, cache: "no-store" });
+          console.log(`[Fetch] Target: ${fetchUrl}`);
+          
+          const res = await fetch(fetchUrl, { 
+            ...opts, 
+            headers: authHeaders, 
+            cache: "no-store",
+            // Thêm redirect: "follow" để chắc chắn không bị dừng ở 302
+            redirect: "follow" 
+          });
+
           if (res.ok) {
             const data = await res.json();
-            console.log(`${new URL(url).pathname.split("/").pop()} success:`, JSON.stringify(data, null, 2));
+            // LOG TOÀN BỘ RESPONSE DATA ĐỂ DEBUG (PRETTY PRINT)
+            console.log(`[SUCCESS] ${url} ->\n`, JSON.stringify(data, null, 2));
+            
             return data;
           } else {
-            console.log(`${new URL(url).pathname.split("/").pop()} fail: ${url} - Status ${res.status}`);
+            const errBody = await res.text().catch(() => "");
+            console.log(`[FAIL] ${url} - Status ${res.status} - Body: ${errBody.slice(0, 100)}`);
             return null;
           }
-        } catch (e) {
-          console.log(`Fetch error: ${url}`);
+        } catch (e: any) {
+          console.log(`[ERROR] Fetch error: ${url} - ${e.message}`);
           return null;
         }
       };
 
-      // Lấy chủ cookie
+      // Lấy thông tin chủ cookie - đây là bước quyết định
       const selfData = await safeFetch("https://users.roblox.com/v1/users/authenticated");
-      let authenticatedUserId: number | null = null;
+
       if (selfData && selfData.id) {
-        authenticatedUserId = selfData.id;
+        const authenticatedUserId = selfData.id.toString();
+        result.meta.authenticatedUser = {
+          id: authenticatedUserId,
+          name: selfData.name,
+          displayName: selfData.displayName,
+        };
         console.log(`Cookie owner: ID ${authenticatedUserId} - Name: ${selfData.name} - DisplayName: ${selfData.displayName}`);
-      }
 
-      // Luôn override sang owner cookie
-      if (authenticatedUserId) {
-        if (Number(userId) !== authenticatedUserId) {
-          console.log(`Override userId từ ${userId} → ${authenticatedUserId}`);
-          userId = authenticatedUserId.toString();
-          result.note = "Đã tự động lấy thông tin của tài khoản chủ cookie";
+        // ĐỊNH NGHĨA HÀM FETCH ĐÔI (CHỈ CHO CÁC ENDPOINT HỖ TRỢ USERID)
+        const fetchParallel = async (urlTemplate: string, requestedId: string, ownerId: string) => {
+          const [reqRes, ownRes] = await Promise.all([
+            safeFetch(urlTemplate.replace("{userId}", requestedId)),
+            safeFetch(urlTemplate.replace("{userId}", ownerId))
+          ]);
+          return { requested: reqRes, owner: ownRes };
+        };
+
+        // Chuyển sang dùng userId của chủ cookie cho các field backward-compatible
+        userId = authenticatedUserId;
+        result.meta.effectiveUserId = userId;
+        
+        // 1. Basic Info & Avatar cho cả 2
+        const basicData = await fetchParallel("https://users.roblox.com/v1/users/{userId}", requestedUserId, authenticatedUserId);
+        if (basicData.requested) {
+          result.requested.basic = basicData.requested;
+          if (basicData.requested.created) {
+            result.requested.accountAgeDays = Math.floor((Date.now() - new Date(basicData.requested.created).getTime()) / 86400000);
+          }
         }
-      }
-
-      // Robux
-      const robuxData = await safeFetch("https://economy.roblox.com/v1/user/currency");
-      if (robuxData?.robux !== undefined) result.robux = robuxData.robux;
-
-      // Pending Robux + Summary mới (tính từ các field trong transaction-totals)
-      const pendingData = await safeFetch(
-        `https://economy.roblox.com/v2/users/${userId}/transaction-totals?timeFrame=Month&transactionType=summary`
-      );
-      if (pendingData) {
-        if (pendingData.pendingRobuxTotal !== undefined) {
-          result.pendingRobux = pendingData.pendingRobuxTotal;
+        if (basicData.owner) {
+          result.cookieOwner.basic = basicData.owner;
+          result.basic = basicData.owner;
+          if (basicData.owner.created) {
+            result.cookieOwner.accountAgeDays = Math.floor((Date.now() - new Date(basicData.owner.created).getTime()) / 86400000);
+            result.accountAgeDays = result.cookieOwner.accountAgeDays;
+          }
         }
 
-        // Tính summary theo công thức bạn yêu cầu
-        result.summary =
-          (pendingData.salesTotal || 0) +
-          (pendingData.affiliateSalesTotal || 0) +
-          (pendingData.groupPayoutsTotal || 0) +
-          (pendingData.premiumPayoutsTotal || 0) +
-          (pendingData.tradeSystemEarningsTotal || 0) +
-          (pendingData.incomingRobuxTotal || 0);
-      }
+        const thumbUrl = "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={userId}&size=420x420&format=Png&isCircular=false";
+        const thumbData = await fetchParallel(thumbUrl, requestedUserId, authenticatedUserId);
+        result.requested.avatarHeadshotUrl = thumbData.requested?.data?.[0]?.imageUrl || null;
+        result.cookieOwner.avatarHeadshotUrl = thumbData.owner?.data?.[0]?.imageUrl || null;
+        result.avatarHeadshotUrl = result.cookieOwner.avatarHeadshotUrl;
 
-      // Inventory + RAP + Limiteds
-      let rap = 0;
-      let limiteds = 0;
-      let invCursor: string | null = null;
-      do {
-        const invUrl = `https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?sortOrder=Asc&limit=100${invCursor ? `&cursor=${invCursor}` : ""}`;
-        const invData = await safeFetch(invUrl);
-        if (invData) {
-          limiteds += invData.data?.length || 0;
-          invData.data?.forEach((item: any) => {
-            if (item.recentAveragePrice !== undefined) rap += Number(item.recentAveragePrice);
-          });
-          invCursor = invData.nextPageCursor;
+        // 2. Robux & Credit & Email & 2FA (Chỉ Cookie Owner mới có hoàn toàn, nhưng Transaction Totals có thể thử cả 2)
+        const robuxData = await safeFetch("https://economy.roblox.com/v1/user/currency");
+        if (robuxData?.robux !== undefined) {
+          result.cookieOwner.robux = robuxData.robux;
+          result.robux = robuxData.robux;
         }
-      } while (invCursor);
 
-      result.rap = rap;
-      result.limiteds = limiteds;
-      result.hasInventory = limiteds > 0;
+        const fetchTransactions = async (uId: string) => {
+          const data = await safeFetch(`https://economy.roblox.com/v2/users/${uId}/transaction-totals?timeFrame=Month&transactionType=summary`);
+          if (!data) return { pending: 0, summary: 0 };
+          console.log("data ransaction:: ", data)
+          
+          // Summary = Tổng Robux từng xài (lấy trị tuyệt đối của outgoingRobuxTotal)
+          const totalSpent = Math.abs(data.outgoingRobuxTotal || 0);
+          
+          return { pending: data.pendingRobuxTotal ?? 0, summary: totalSpent };
+        };
 
-      // Premium
-      const premiumData = await safeFetch(`https://premiumfeatures.roblox.com/v1/users/${userId}/validate-membership`);
-      result.premium = premiumData ? "Premium" : "N/A";
+        const [reqTrans, ownTrans] = await Promise.all([
+          fetchTransactions(requestedUserId),
+          fetchTransactions(authenticatedUserId)
+        ]);
 
-      // Credit Balance
-      const creditData = await safeFetch("https://billing.roblox.com/v1/credit");
-      if (creditData?.robuxAmount !== undefined) result.creditBalance = creditData.robuxAmount;
+        result.requested.pendingRobux = reqTrans.pending;
+        result.requested.summary = reqTrans.summary;
+        
+        result.cookieOwner.pendingRobux = ownTrans.pending;
+        result.cookieOwner.summary = ownTrans.summary;
+        // Compat
+        result.pendingRobux = ownTrans.pending;
+        result.summary = ownTrans.summary;
 
-      // Groups + Group Balances
-      const groupsData = await safeFetch(`https://groups.roblox.com/v2/users/${userId}/groups/roles`);
-      if (groupsData?.data) {
-        result.groupsCount = groupsData.data.length;
-        const owned = groupsData.data.filter((g: any) => g.role?.rank === 255);
-        result.ownedGroups = owned.length;
+        console.log(ownTrans)
 
-        for (const group of owned) {
-          const groupId = group.group?.id;
-          const groupName = group.group?.name;
-          if (groupId) {
-            const groupCurrency = await safeFetch(`https://economy.roblox.com/v1/groups/${groupId}/currency`);
-            if (groupCurrency?.robux !== undefined) {
-              result.groupBalances.push({
-                groupId,
-                name: groupName || "Unknown",
-                robux: groupCurrency.robux,
-              });
+        const creditData = await safeFetch("https://billing.roblox.com/v1/credit");
+        if (creditData?.robuxAmount !== undefined) {
+          result.cookieOwner.creditBalance = creditData.robuxAmount;
+          result.creditBalance = creditData.robuxAmount;
+        }
+
+        const emailData = await safeFetch("https://accountsettings.roblox.com/v1/email");
+        if (emailData?.verified !== undefined) {
+          result.cookieOwner.emailVerified = emailData.verified;
+          result.emailVerified = emailData.verified;
+        }
+
+        const pinData = await safeFetch("https://auth.roblox.com/v1/account/pin");
+        if (pinData?.isEnabled !== undefined) {
+          const val = pinData.isEnabled ? "Authenticator Enabled" : "No 2FA";
+          result.cookieOwner.twoFA = val;
+          result.twoFA = val;
+        }
+
+        // 3. Groups & Balances (Fetch cả 2)
+        const fetchGroups = async (uId: string) => {
+          const gData = await safeFetch(`https://groups.roblox.com/v2/users/${uId}/groups/roles`);
+          if (!gData?.data) return { count: 0, owned: 0, balances: [] };
+          const owned = gData.data.filter((g: any) => g.role?.rank === 255);
+          const balances: any[] = [];
+          for (const group of owned) {
+            const currency = await safeFetch(`https://economy.roblox.com/v1/groups/${group.group.id}/currency`);
+            if (currency?.robux !== undefined) {
+              balances.push({ groupId: group.group.id, name: group.group.name, robux: currency.robux });
             }
           }
-        }
+          return { count: gData.data.length, owned: owned.length, balances };
+        };
+
+        const [reqGroups, ownGroups] = await Promise.all([
+          fetchGroups(requestedUserId),
+          fetchGroups(authenticatedUserId)
+        ]);
+
+        result.requested.groupsCount = reqGroups.count;
+        result.requested.ownedGroups = reqGroups.owned;
+        result.requested.groupBalances = reqGroups.balances;
+
+        result.cookieOwner.groupsCount = ownGroups.count;
+        result.cookieOwner.ownedGroups = ownGroups.owned;
+        result.cookieOwner.groupBalances = ownGroups.balances;
+        // Compat
+        result.groupsCount = ownGroups.count;
+        result.ownedGroups = ownGroups.owned;
+        result.groupBalances = ownGroups.balances;
+
+        // 4. Games & Visits (Fetch cả 2)
+        const fetchGames = async (uId: string) => {
+          let games: any[] = [];
+          let cursor: string | null = null;
+          let visits = 0;
+          do {
+            const data = await safeFetch(`https://games.roblox.com/v2/users/${uId}/games?sortOrder=Asc&limit=50${cursor ? `&cursor=${cursor}` : ""}`);
+            if (data?.data) {
+              games = games.concat(data.data);
+              data.data.forEach((g: any) => visits += (g.placeVisits || g.visits || 0));
+              cursor = data.nextPageCursor;
+            } else break;
+          } while (cursor);
+
+          const lowerNames = games.map(g => g.name.toLowerCase());
+          return {
+            games: games.map(g => ({ name: g.name, visits: (g.placeVisits || g.visits || 0), created: g.created })),
+            visits,
+            mm2: lowerNames.filter(n => n.includes("mm2") || n.includes("murder mystery")).length,
+            adm: lowerNames.filter(n => n.includes("admin") || n.includes("commands")).length,
+            sab: lowerNames.filter(n => n.includes("sab") || n.includes("sabotage")).length,
+            isDev: games.length > 0 && games[0].creator?.id?.toString() === uId
+          };
+        };
+
+        const [reqGames, ownGames] = await Promise.all([
+          fetchGames(requestedUserId),
+          fetchGames(authenticatedUserId)
+        ]);
+
+        result.requested.visits = reqGames.visits;
+        result.requested.mm2_count = reqGames.mm2;
+        result.requested.adm_count = reqGames.adm;
+        result.requested.sab_count = reqGames.sab;
+        result.requested.isDeveloper = reqGames.isDev;
+
+        result.cookieOwner.visits = ownGames.visits;
+        result.cookieOwner.mm2_count = ownGames.mm2;
+        result.cookieOwner.adm_count = ownGames.adm;
+        result.cookieOwner.sab_count = ownGames.sab;
+        result.cookieOwner.isDeveloper = ownGames.isDev;
+        // Compat
+        result.visits = ownGames.visits;
+        result.mm2_count = ownGames.mm2;
+        result.adm_count = ownGames.adm;
+        result.sab_count = ownGames.sab;
+        result.isDeveloper = ownGames.isDev;
+
+        // 5. Collectibles / RAP (Fetch cả 2)
+        const fetchInv = async (uId: string) => {
+          let rap = 0, count = 0, cursor: string | null = null;
+          do {
+            const data = await safeFetch(`https://inventory.roblox.com/v1/users/${uId}/assets/collectibles?limit=100${cursor ? `&cursor=${cursor}` : ""}`);
+            if (data?.data) {
+              count += data.data.length;
+              data.data.forEach((i: any) => rap += (i.recentAveragePrice || 0));
+              cursor = data.nextPageCursor;
+            } else break;
+          } while (cursor);
+          return { rap, count };
+        };
+
+        const [reqInv, ownInv] = await Promise.all([
+          fetchInv(requestedUserId),
+          fetchInv(authenticatedUserId)
+        ]);
+        result.requested.rap = reqInv.rap;
+        result.requested.limiteds = reqInv.count;
+        result.cookieOwner.rap = ownInv.rap;
+        result.cookieOwner.limiteds = ownInv.count;
+        result.rap = ownInv.rap;
+        result.limiteds = ownInv.count;
+        result.hasInventory = ownInv.count > 0;
+
+        // Premium (Fetch cả 2)
+        const premData = await fetchParallel("https://premiumfeatures.roblox.com/v1/users/{userId}/validate-membership", requestedUserId, authenticatedUserId);
+        result.requested.premium = premData.requested ? "Premium" : "N/A";
+        result.cookieOwner.premium = premData.owner ? "Premium" : "N/A";
+        result.premium = result.cookieOwner.premium;
+
+      } else {
+        result.note = "Cookie không hợp lệ hoặc không thể authenticate → chỉ có thông tin public";
       }
 
-      // Games + tags
-      let games: any[] = [];
-      let gameCursor: string | null = null;
-      let totalVisits = 0;
-
-      do {
-        const gamesUrl = `https://games.roblox.com/v2/users/${userId}/games?sortOrder=Asc&limit=50${gameCursor ? `&cursor=${gameCursor}` : ""}`;
-        const gamesData = await safeFetch(gamesUrl);
-        if (gamesData?.data) {
-          games = games.concat(gamesData.data);
-          gamesData.data.forEach((g: any) => {
-            totalVisits += Number(g.placeVisits || g.visits || 0);
-          });
-          gameCursor = gamesData.nextPageCursor;
-        }
-      } while (gameCursor);
-
-      if (games.length > 0) {
-        const universeIds = games.map((g: any) => g.universeId || g.id).filter(Boolean).join(",");
-        if (universeIds) {
-          const detailData = await safeFetch(`https://games.roblox.com/v1/games?universeIds=${universeIds}`);
-          if (detailData?.data) {
-            detailData.data.forEach((d: any) => {
-              totalVisits += Number(d.visits || d.placeVisits || 0);
-            });
-          }
-        }
-
-        result.games = games.map((g: any) => ({
-          name: g.name,
-          universeId: g.universeId,
-          placeId: g.id,
-          visits: Number(g.placeVisits || g.visits || 0),
-          created: g.created,
-        }));
-        result.gamesCount = games.length;
-        result.visits = totalVisits;
-
-        const firstGame = games[0];
-        if (firstGame?.creator?.id && Number(firstGame.creator.id) === Number(userId) && firstGame.creator.type === "User") {
-          result.isDeveloper = true;
-        }
-
-        const lowerNames = games.map((g: any) => g.name.toLowerCase());
-        result.mm2_count = lowerNames.filter(n => 
-          n.includes("mm2") || 
-          n.includes("murder mystery") || 
-          n.includes("murderer") || 
-          n.includes("innocent") || 
-          n.includes("sheriff")
-        ).length;
-
-        result.adm_count = lowerNames.filter(n => 
-          n.includes("admin") || 
-          n.includes("fe admin") || 
-          n.includes("kohls") || 
-          n.includes("hd admin") || 
-          n.includes("commands")
-        ).length;
-
-        result.sab_count = lowerNames.filter(n => 
-          n.includes("sab") || 
-          n.includes("sabotage") || 
-          n.includes("impostor") || 
-          n.includes("traitor") || 
-          n.includes("among us") || 
-          n.includes("betrayal")
-        ).length;
-      }
-
-      // Email & 2FA
-      const emailData = await safeFetch("https://accountsettings.roblox.com/v1/email");
-      if (emailData?.verified !== undefined) result.emailVerified = emailData.verified;
-
-      const pinData = await safeFetch("https://auth.roblox.com/v1/account/pin");
-      if (pinData?.isEnabled !== undefined) {
-        result.twoFA = pinData.isEnabled ? "Authenticator Enabled" : "No 2FA";
-      }
-
-      // === LOG TỔNG HỢP ===
+      // Log tổng hợp (giữ nguyên)
       const summaryLog = {
         username: result.basic?.name || "Unknown",
         displayName: result.basic?.displayName || "Unknown",
