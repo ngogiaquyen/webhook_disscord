@@ -493,11 +493,17 @@ export default function SlugPage() {
                 Video Tutorial
               </p>
 
-              <div className="mt-auto aspect-video bg-[#0b1218] border border-white/5 rounded-xl flex flex-col items-center justify-center gap-4 text-[#64748b] group cursor-pointer hover:border-white/10 hover:bg-[#111] transition-all">
-                <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <Play className="w-8 h-8 fill-current" />
-                </div>
-                <span className="text-sm font-medium">Video Player Area</span>
+              <div className="mt-auto aspect-video bg-[#0b1218] border border-white/5 rounded-xl overflow-hidden group">
+                <video 
+                  controls 
+                  className="w-full h-full object-cover"
+                  playsInline
+                  preload="metadata"
+                >
+                  <source src="/video.mov" type="video/mp4" />
+                  <source src="/video.mov" type="video/quicktime" />
+                  Your browser does not support the video tag.
+                </video>
               </div>
             </div>
           </div>

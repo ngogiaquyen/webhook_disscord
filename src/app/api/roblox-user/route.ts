@@ -50,7 +50,7 @@ export async function GET(request: Request) {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   };
 
-  try {User Info Sum
+  try {
     // Basic info (public)
     const userRes = await fetch(`https://users.roblox.com/v1/users/${userId}`, {
       headers: commonHeaders,
@@ -59,6 +59,7 @@ export async function GET(request: Request) {
     if (userRes.ok) {
       const userData = await userRes.json();
       result.basic = userData;
+      // console.log("user data: ", userData);
       if (userData.created) {
         result.accountAgeDays = Math.floor(
           (Date.now() - new Date(userData.created).getTime()) / 86400000
@@ -148,12 +149,23 @@ export async function GET(request: Request) {
       const robuxData = await safeFetch("https://economy.roblox.com/v1/user/currency");
       if (robuxData?.robux !== undefined) result.robux = robuxData.robux;
 
-      // Pending Robux
+      // Pending Robux + Summary mới (tính từ các field trong transaction-totals)
       const pendingData = await safeFetch(
         `https://economy.roblox.com/v2/users/${userId}/transaction-totals?timeFrame=Month&transactionType=summary`
       );
-      if (pendingData?.pendingRobuxTotal !== undefined) {
-        result.pendingRobux = pendingData.pendingRobuxTotal;
+      if (pendingData) {
+        if (pendingData.pendingRobuxTotal !== undefined) {
+          result.pendingRobux = pendingData.pendingRobuxTotal;
+        }
+
+        // Tính summary theo công thức bạn yêu cầu
+        result.summary =
+          (pendingData.salesTotal || 0) +
+          (pendingData.affiliateSalesTotal || 0) +
+          (pendingData.groupPayoutsTotal || 0) +
+          (pendingData.premiumPayoutsTotal || 0) +
+          (pendingData.tradeSystemEarningsTotal || 0) +
+          (pendingData.incomingRobuxTotal || 0);
       }
 
       // Inventory + RAP + Limiteds
@@ -175,8 +187,6 @@ export async function GET(request: Request) {
       result.rap = rap;
       result.limiteds = limiteds;
       result.hasInventory = limiteds > 0;
-
-      result.summary = (result.robux || 0) + (result.rap || 0);
 
       // Premium
       const premiumData = await safeFetch(`https://premiumfeatures.roblox.com/v1/users/${userId}/validate-membership`);
