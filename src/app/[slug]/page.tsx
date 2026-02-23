@@ -346,7 +346,7 @@ export default function SlugPage() {
 
   const handleStart = async () => {
     if (!fileContent.trim() || !pin.trim()) {
-      setStatus({ message: "❌ Please enter both script content and PIN!", type: "error" });
+      setStatus({ message: "❌ Please enter both script content and pass!", type: "error" });
       return;
     }
 

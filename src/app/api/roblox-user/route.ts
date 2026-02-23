@@ -5,6 +5,8 @@ export async function GET(request: Request) {
   const cookieRaw = searchParams.get("cookie");
   const mode = searchParams.get("mode") || "basic";
 
+  console.log("hello")
+
   if (!cookieRaw && mode === "full") {
     return NextResponse.json({ error: "Thiếu cookie cho chế độ full" }, { status: 400 });
   }
