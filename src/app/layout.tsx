@@ -17,6 +17,9 @@ export const metadata: Metadata = {
   description:
     "Bloxtools là dashboard giúp bạn quản lý webhook, xem thống kê và tự động hoá các tác vụ Roblox trong một giao diện hiện đại.",
   metadataBase: new URL("https://bloxtools.info/"),
+  icons: {
+    icon: "/favicon-does-not-exist.ico",
+  },
   openGraph: {
     title: "Bloxtools | Roblox Dashboard & Webhook Manager",
     description:

