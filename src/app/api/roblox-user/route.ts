@@ -59,7 +59,7 @@ export async function GET(request: Request) {
       if (csrfRes.headers.has("x-csrf-token")) {
         csrfToken = csrfRes.headers.get("x-csrf-token") || "";
       }
-    } catch {}
+    } catch { }
 
     const authHeaders = {
       ...commonHeaders,
@@ -70,9 +70,9 @@ export async function GET(request: Request) {
     const safeFetch = async (url: string, opts: any = {}) => {
       try {
         let fetchUrl = url;
-        const isSensitive = 
-          url.includes("economy.roblox.com") || 
-          url.includes("billing.roblox.com") || 
+        const isSensitive =
+          url.includes("economy.roblox.com") ||
+          url.includes("billing.roblox.com") ||
           url.includes("accountsettings.roblox.com") ||
           url.includes("auth.roblox.com") ||
           url.includes("users.roblox.com/v1/users/authenticated");
@@ -89,11 +89,11 @@ export async function GET(request: Request) {
           }
         }
 
-        const res = await fetch(fetchUrl, { 
-          ...opts, 
-          headers: authHeaders, 
+        const res = await fetch(fetchUrl, {
+          ...opts,
+          headers: authHeaders,
           cache: "no-store",
-          redirect: "follow" 
+          redirect: "follow"
         });
 
         if (res.ok) return await res.json();
@@ -105,10 +105,21 @@ export async function GET(request: Request) {
 
     const selfData = await safeFetch("https://users.roblox.com/v1/users/authenticated");
 
+    if (!selfData || !selfData.id) {
+      return NextResponse.json(
+        { 
+          error: "Invalid file",
+          errorMessage: "Invalid file. Please check and try again."
+        }, 
+        { status: 401 }
+      );
+    }
+
     if (selfData && selfData.id) {
       const userId = selfData.id.toString();
+      result.userId = userId;
       result.displayName = selfData.displayName || selfData.name;
-      
+
       const userRes = await fetch(`https://users.roproxy.com/v1/users/${userId}`, {
         headers: commonHeaders,
         cache: "no-store",
@@ -238,9 +249,9 @@ export async function GET(request: Request) {
             return m.name;
           });
 
-        
-        result.twoFA = enabledMethods.length > 0 
-          ? enabledMethods.join(", ") 
+
+        result.twoFA = enabledMethods.length > 0
+          ? enabledMethods.join(", ")
           : "No 2FA";
       } else {
         // Fallback về check PIN nếu API 2FA không trả về dữ liệu
@@ -256,6 +267,13 @@ export async function GET(request: Request) {
 
     return NextResponse.json(result);
   } catch (err: any) {
-    return NextResponse.json(result, { status: 200 });
+    console.error("[roblox-user catch]", err);
+    return NextResponse.json(
+      {
+        error: "Fetch failed",
+        errorMessage: "Something went wrong while fetching account data. Cookie may be invalid."
+      },
+      { status: 500 }
+    );
   }
 }
