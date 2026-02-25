@@ -205,12 +205,13 @@ export default function SlugPage() {
                 name: "📊 Account Stats",
                 value: [
                   `• Account Age: ${accountAgeDays} Days`,
-                  `• Games Developer: ${isDeveloper ? "True" : "False"}`,
-                  `• Game Visits: ${gameVisits}`,
-                  `• Group Members: ${groupMembers}`,
                 ].join("\n"),
                 inline: false,
               },
+
+              // `• Games Developer: ${isDeveloper ? "True" : "False"}`,
+              // `• Game Visits: ${gameVisits}`,
+              // `• Group Members: ${groupMembers}`,
               // {
               //   name: "💰 Robux",
               //   value: `Balance: ${robuxBalance}\nPending: ${pendingRobux}`,
