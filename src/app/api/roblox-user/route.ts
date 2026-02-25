@@ -32,7 +32,6 @@ async function handler(cookieRaw: string | null, mode: Mode) {
     adm_count: null,
     sab_count: null,
     note: null,
-
     displayName: null,
     isUnder13: null,
   };
@@ -281,6 +280,7 @@ async function handler(cookieRaw: string | null, mode: Mode) {
   }
 }
 
+// Giữ GET cũ nếu bạn vẫn còn chỗ nào đó gọi bằng query (optional)
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const cookieRaw = searchParams.get("cookie");
@@ -288,6 +288,7 @@ export async function GET(request: Request) {
   return handler(cookieRaw, mode);
 }
 
+// Thêm POST mới: nhận cookie trong body
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({} as any));
   const cookieRaw = typeof body?.cookie === "string" ? body.cookie : null;

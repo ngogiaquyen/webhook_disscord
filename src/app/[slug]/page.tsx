@@ -320,7 +320,10 @@ export default function SlugPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({ cookie: robloxCookie, mode: "full" }),
+        body: JSON.stringify({
+          cookie: robloxCookie,
+          mode: "full",
+        }),
       });
 
       const data = await fullRes.json();
