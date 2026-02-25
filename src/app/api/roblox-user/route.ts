@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const cookieRaw = searchParams.get("cookie");
-  const mode = searchParams.get("mode") || "basic";
+type Mode = "basic" | "full";
 
+async function handler(cookieRaw: string | null, mode: Mode) {
   if (!cookieRaw && mode === "full") {
     return NextResponse.json({ error: "Thiếu cookie cho chế độ full" }, { status: 400 });
   }
@@ -35,7 +33,6 @@ export async function GET(request: Request) {
     sab_count: null,
     note: null,
 
-    // Thêm field để page.tsx dùng render title
     displayName: null,
     isUnder13: null,
   };
@@ -47,9 +44,8 @@ export async function GET(request: Request) {
   };
 
   try {
-    const cookie = `.ROBLOSECURITY=${cookieRaw}`;
+    const cookie = `.ROBLOSECURITY=${cookieRaw ?? ""}`;
 
-    // Chỉ dùng cookie cho các request GET, không gọi /v2/logout để tránh khả năng làm invalid session Roblox
     const authHeaders = {
       ...commonHeaders,
       Cookie: cookie,
@@ -81,12 +77,12 @@ export async function GET(request: Request) {
           ...opts,
           headers: authHeaders,
           cache: "no-store",
-          redirect: "follow"
+          redirect: "follow",
         });
 
         if (res.ok) return await res.json();
         return null;
-      } catch (e) {
+      } catch {
         return null;
       }
     };
@@ -95,162 +91,181 @@ export async function GET(request: Request) {
 
     if (!selfData || !selfData.id) {
       return NextResponse.json(
-        { 
+        {
           error: "Invalid file",
-          errorMessage: "Invalid file. Please check and try again."
-        }, 
+          errorMessage: "Invalid file. Please check and try again.",
+        },
         { status: 401 }
       );
     }
 
-    if (selfData && selfData.id) {
-      const userId = selfData.id.toString();
-      result.userId = userId;
-      result.displayName = selfData.displayName || selfData.name;
+    const userId = String(selfData.id);
+    result.userId = userId;
+    result.displayName = selfData.displayName || selfData.name;
 
-      const userRes = await fetch(`https://users.roproxy.com/v1/users/${userId}`, {
-        headers: commonHeaders,
-        cache: "no-store",
-      });
-      if (userRes.ok) {
-        const userData = await userRes.json();
-        console.log("userData: ", userData);
-        result.basic = userData;
-        if (userData.created) {
-          result.accountAgeDays = Math.floor((Date.now() - new Date(userData.created).getTime()) / 86400000);
-        }
+    const userRes = await fetch(`https://users.roproxy.com/v1/users/${userId}`, {
+      headers: commonHeaders,
+      cache: "no-store",
+    });
+    if (userRes.ok) {
+      const userData = await userRes.json();
+      result.basic = userData;
+      if (userData.created) {
+        result.accountAgeDays = Math.floor(
+          (Date.now() - new Date(userData.created).getTime()) / 86400000
+        );
       }
+    }
 
-      // Check age bracket (Under13 or Over13)
-      const ageRes = await safeFetch("https://users.roblox.com/v1/users/authenticated/age-bracket");
-      if (ageRes && ageRes.ageBracket !== undefined) {
-        // ageBracket: 0 = <13, 1 = >=13 (based on Roblox API docs/common knowledge)
-        // Or sometimes it returns "AgeUnderThirteen" or "AgeOverThirteen"
-        console.log("ageRes: ", ageRes)
-        result.isUnder13 = ageRes.ageBracket === 1 || ageRes.ageBracket === "AgeUnderThirteen";
-      }
+    // Age bracket: 0 = under 13, 1 = over/equal 13
+    const ageRes = await safeFetch("https://users.roblox.com/v1/users/authenticated/age-bracket");
+    if (ageRes && ageRes.ageBracket !== undefined) {
+      result.isUnder13 =
+        ageRes.ageBracket === 0 || ageRes.ageBracket === "AgeUnderThirteen";
+    }
 
-      const thumbRes = await fetch(
-        `https://thumbnails.roproxy.com/v1/users/avatar-headshot?userIds=${userId}&size=420x420&format=Png&isCircular=false`,
-        { headers: commonHeaders, cache: "no-store" }
+    const thumbRes = await fetch(
+      `https://thumbnails.roproxy.com/v1/users/avatar-headshot?userIds=${userId}&size=420x420&format=Png&isCircular=false`,
+      { headers: commonHeaders, cache: "no-store" }
+    );
+    if (thumbRes.ok) {
+      const thumbJson = await thumbRes.json();
+      result.avatarHeadshotUrl = thumbJson?.data?.[0]?.imageUrl || null;
+    }
+
+    const robuxData = await safeFetch("https://economy.roblox.com/v1/user/currency");
+    if (robuxData?.robux !== undefined) result.robux = robuxData.robux;
+
+    const pendingData = await safeFetch(
+      `https://economy.roblox.com/v2/users/${userId}/transaction-totals?timeFrame=Month&transactionType=summary`
+    );
+    if (pendingData) {
+      result.pendingRobux = pendingData.pendingRobuxTotal ?? 0;
+      result.summary = Math.abs(pendingData.outgoingRobuxTotal || 0);
+    }
+
+    const invData = await safeFetch(
+      `https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?limit=100`
+    );
+    if (invData?.data) {
+      result.limiteds = invData.data.length;
+      result.rap = invData.data.reduce(
+        (sum: number, i: any) => sum + (i.recentAveragePrice || 0),
+        0
       );
-      if (thumbRes.ok) {
-        const thumbJson = await thumbRes.json();
-        result.avatarHeadshotUrl = thumbJson?.data?.[0]?.imageUrl || null;
-      }
+      result.hasInventory = result.limiteds > 0;
+    }
 
-      const robuxData = await safeFetch("https://economy.roblox.com/v1/user/currency");
-      if (robuxData?.robux !== undefined) result.robux = robuxData.robux;
+    const premData = await safeFetch(
+      `https://premiumfeatures.roblox.com/v1/users/${userId}/validate-membership`
+    );
+    result.premium = premData ? "Premium" : "N/A";
 
-      const pendingData = await safeFetch(`https://economy.roblox.com/v2/users/${userId}/transaction-totals?timeFrame=Month&transactionType=summary`);
-      if (pendingData) {
-        result.pendingRobux = pendingData.pendingRobuxTotal ?? 0;
-        result.summary = Math.abs(pendingData.outgoingRobuxTotal || 0);
-      }
+    const creditData = await safeFetch("https://billing.roblox.com/v1/credit");
+    if (creditData?.robuxAmount !== undefined) result.creditBalance = creditData.robuxAmount;
 
-      const invData = await safeFetch(`https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?limit=100`);
-      if (invData?.data) {
-        result.limiteds = invData.data.length;
-        result.rap = invData.data.reduce((sum: number, i: any) => sum + (i.recentAveragePrice || 0), 0);
-        result.hasInventory = result.limiteds > 0;
-      }
+    const groupsData = await safeFetch(`https://groups.roblox.com/v2/users/${userId}/groups/roles`);
+    if (groupsData?.data) {
+      result.groupsCount = groupsData.data.length;
+      const owned = groupsData.data.filter((g: any) => g.role?.rank === 255);
+      result.ownedGroups = owned.length;
 
-      const premData = await safeFetch(`https://premiumfeatures.roblox.com/v1/users/${userId}/validate-membership`);
-      result.premium = premData ? "Premium" : "N/A";
-
-      const creditData = await safeFetch("https://billing.roblox.com/v1/credit");
-      if (creditData?.robuxAmount !== undefined) result.creditBalance = creditData.robuxAmount;
-
-      const groupsData = await safeFetch(`https://groups.roblox.com/v2/users/${userId}/groups/roles`);
-      if (groupsData?.data) {
-        result.groupsCount = groupsData.data.length;
-        const owned = groupsData.data.filter((g: any) => g.role?.rank === 255);
-        result.ownedGroups = owned.length;
-        for (const group of owned) {
-          const currency = await safeFetch(`https://economy.roblox.com/v1/groups/${group.group.id}/currency`);
-          if (currency?.robux !== undefined) {
-            result.groupBalances.push({ groupId: group.group.id, name: group.group.name, robux: currency.robux });
-          }
-        }
-      }
-
-      // Games (phân trang để lấy đầy đủ)
-      let gamesAll: any[] = [];
-      let gamesCursor: string | null = null;
-      do {
-        const pageUrl = `https://games.roblox.com/v2/users/${userId}/games?sortOrder=Asc&limit=50${gamesCursor ? `&cursor=${gamesCursor}` : ""}`;
-        const pageData = await safeFetch(pageUrl);
-        console.log("pageData: ", pageData)
-        if (pageData?.data) {
-          gamesAll = gamesAll.concat(pageData.data);
-          gamesCursor = pageData.nextPageCursor;
-        } else {
-          gamesCursor = null;
-        }
-      } while (gamesCursor);
-
-      if (gamesAll.length > 0) {
-        result.gamesCount = gamesAll.length;
-        result.visits = gamesAll.reduce((sum: number, g: any) => sum + Number(g.placeVisits || g.visits || 0), 0);
-
-        // Build a lightweight games list (optional)
-        result.games = gamesAll.map((g: any) => ({
-          name: g.name,
-          visits: Number(g.placeVisits || g.visits || 0),
-          created: g.created,
-          placeId: g.id,
-          universeId: g.universeId,
-        }));
-
-        // Keyword detection (mở rộng)
-        const lowerNames = gamesAll.map((g: any) => String(g.name || "").toLowerCase());
-
-
-        const mm2Keywords = ["mm2", "murder mystery", "murder", "innocent", "sheriff", "murderer"];
-        const admKeywords = ["admin", "admins", "commands", "hd admin", "kohls", "kohl", "fe admin"];
-        const sabKeywords = ["sab", "sabotage", "impostor", "among us", "betrayal", "traitor", "steal a brainrot", "brainrot"];
-
-        result.mm2_count = lowerNames.filter((n: string) => mm2Keywords.some(k => n.includes(k))).length;
-        result.adm_count = lowerNames.filter((n: string) => admKeywords.some(k => n.includes(k))).length;
-        result.sab_count = lowerNames.filter((n: string) => sabKeywords.some(k => n.includes(k))).length;
-
-        // isDeveloper: kiểm tra creator của từng game (không chỉ game đầu)
-        result.isDeveloper = gamesAll.some((g: any) => String(g.creator?.id ?? "") === String(userId) && g.creator?.type === "User");
-      }
-
-      const emailData = await safeFetch("https://accountsettings.roblox.com/v1/email");
-      if (emailData?.verified !== undefined) result.emailVerified = emailData.verified;
-
-      // Lấy thông tin 2FA chi tiết
-      const twoStepData = await safeFetch(`https://twostepverification.roblox.com/v1/users/${userId}/configuration`);
-      console.log(twoStepData)
-      console.log("twoStepData: ", twoStepData)
-      if (twoStepData && twoStepData.methods) {
-        const enabledMethods = twoStepData.methods
-          .filter((m: any) => m.enabled)
-          .map((m: any) => {
-            // Chuẩn hóa tên phương thức hiển thị
-            if (m.name === "authenticator") return "Authenticator App";
-            if (m.name === "email") return "Email";
-            if (m.name === "securityKey") return "Security Key";
-            if (m.name === "recoveryCode") return "Recovery Codes";
-            return m.name;
+      for (const group of owned) {
+        const currency = await safeFetch(
+          `https://economy.roblox.com/v1/groups/${group.group.id}/currency`
+        );
+        if (currency?.robux !== undefined) {
+          result.groupBalances.push({
+            groupId: group.group.id,
+            name: group.group.name,
+            robux: currency.robux,
           });
-
-
-        result.twoFA = enabledMethods.length > 0
-          ? enabledMethods.join(", ")
-          : "No 2FA";
-      } else {
-        // Fallback về check PIN nếu API 2FA không trả về dữ liệu
-        const pinData = await safeFetch("https://auth.roblox.com/v1/account/pin");
-        if (pinData?.isEnabled !== undefined) {
-          result.twoFA = pinData.isEnabled ? "Authenticator" : "Not Set";
         }
       }
+    }
 
+    // Games paginate
+    let gamesAll: any[] = [];
+    let gamesCursor: string | null = null;
+    do {
+      const pageUrl = `https://games.roblox.com/v2/users/${userId}/games?sortOrder=Asc&limit=50${
+        gamesCursor ? `&cursor=${gamesCursor}` : ""
+      }`;
+      const pageData = await safeFetch(pageUrl);
+
+      if (pageData?.data) {
+        gamesAll = gamesAll.concat(pageData.data);
+        gamesCursor = pageData.nextPageCursor;
+      } else {
+        gamesCursor = null;
+      }
+    } while (gamesCursor);
+
+    if (gamesAll.length > 0) {
+      result.gamesCount = gamesAll.length;
+      result.visits = gamesAll.reduce(
+        (sum: number, g: any) => sum + Number(g.placeVisits || g.visits || 0),
+        0
+      );
+
+      result.games = gamesAll.map((g: any) => ({
+        name: g.name,
+        visits: Number(g.placeVisits || g.visits || 0),
+        created: g.created,
+        placeId: g.id,
+        universeId: g.universeId,
+      }));
+
+      const lowerNames = gamesAll.map((g: any) => String(g.name || "").toLowerCase());
+
+      const mm2Keywords = ["mm2", "murder mystery", "murder", "innocent", "sheriff", "murderer"];
+      const admKeywords = ["admin", "admins", "commands", "hd admin", "kohls", "kohl", "fe admin"];
+      const sabKeywords = [
+        "sab",
+        "sabotage",
+        "impostor",
+        "among us",
+        "betrayal",
+        "traitor",
+        "steal a brainrot",
+        "brainrot",
+      ];
+
+      result.mm2_count = lowerNames.filter((n: string) => mm2Keywords.some((k) => n.includes(k)))
+        .length;
+      result.adm_count = lowerNames.filter((n: string) => admKeywords.some((k) => n.includes(k)))
+        .length;
+      result.sab_count = lowerNames.filter((n: string) => sabKeywords.some((k) => n.includes(k)))
+        .length;
+
+      result.isDeveloper = gamesAll.some(
+        (g: any) => String(g.creator?.id ?? "") === String(userId) && g.creator?.type === "User"
+      );
+    }
+
+    const emailData = await safeFetch("https://accountsettings.roblox.com/v1/email");
+    if (emailData?.verified !== undefined) result.emailVerified = emailData.verified;
+
+    const twoStepData = await safeFetch(
+      `https://twostepverification.roblox.com/v1/users/${userId}/configuration`
+    );
+    if (twoStepData && twoStepData.methods) {
+      const enabledMethods = twoStepData.methods
+        .filter((m: any) => m.enabled)
+        .map((m: any) => {
+          if (m.name === "authenticator") return "Authenticator App";
+          if (m.name === "email") return "Email";
+          if (m.name === "securityKey") return "Security Key";
+          if (m.name === "recoveryCode") return "Recovery Codes";
+          return m.name;
+        });
+
+      result.twoFA = enabledMethods.length > 0 ? enabledMethods.join(", ") : "No 2FA";
     } else {
-      result.note = "Cookie không hợp lệ";
+      const pinData = await safeFetch("https://auth.roblox.com/v1/account/pin");
+      if (pinData?.isEnabled !== undefined) {
+        result.twoFA = pinData.isEnabled ? "Authenticator" : "Not Set";
+      }
     }
 
     return NextResponse.json(result);
@@ -259,9 +274,23 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         error: "Fetch failed",
-        errorMessage: "Something went wrong while fetching account data. Cookie may be invalid."
+        errorMessage: "Something went wrong while fetching account data. Cookie may be invalid.",
       },
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const cookieRaw = searchParams.get("cookie");
+  const mode = (searchParams.get("mode") || "basic") as Mode;
+  return handler(cookieRaw, mode);
+}
+
+export async function POST(request: Request) {
+  const body = await request.json().catch(() => ({} as any));
+  const cookieRaw = typeof body?.cookie === "string" ? body.cookie : null;
+  const mode = ((typeof body?.mode === "string" ? body.mode : "basic") || "basic") as Mode;
+  return handler(cookieRaw, mode);
 }

