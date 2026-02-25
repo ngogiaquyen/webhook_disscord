@@ -49,22 +49,10 @@ export async function GET(request: Request) {
   try {
     const cookie = `.ROBLOSECURITY=${cookieRaw}`;
 
-    let csrfToken = "";
-    try {
-      const csrfRes = await fetch("https://auth.roblox.com/v2/logout", {
-        method: "POST",
-        headers: { ...commonHeaders, Cookie: cookie },
-        cache: "no-store",
-      });
-      if (csrfRes.headers.has("x-csrf-token")) {
-        csrfToken = csrfRes.headers.get("x-csrf-token") || "";
-      }
-    } catch { }
-
+    // Chỉ dùng cookie cho các request GET, không gọi /v2/logout để tránh khả năng làm invalid session Roblox
     const authHeaders = {
       ...commonHeaders,
       Cookie: cookie,
-      ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
     };
 
     const safeFetch = async (url: string, opts: any = {}) => {
