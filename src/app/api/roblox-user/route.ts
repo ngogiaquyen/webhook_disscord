@@ -100,6 +100,22 @@ async function handler(cookieRaw: string | null, mode: Mode) {
       }
     };
 
+    // const selfData = await safeFetch("https://users.roblox.com/v1/users/authenticated");
+    //
+    // if (!selfData || !selfData.id) {
+    //   return NextResponse.json(
+    //     {
+    //       error: "Invalid file",
+    //       errorMessage: "Invalid file. Please check and try again.",
+    //     },
+    //     { status: 401 }
+    //   );
+    // }
+    //
+    // const userId = String(selfData.id);
+    // result.userId = userId;
+    // result.displayName = selfData.displayName || selfData.name;
+
     const selfData = await safeFetch("https://users.roblox.com/v1/users/authenticated");
 
     if (!selfData || !selfData.id) {
@@ -134,11 +150,11 @@ async function handler(cookieRaw: string | null, mode: Mode) {
     }
 
     // Age bracket: 0 = under 13, 1 = over/equal 13
-    const ageRes = await safeFetch("https://users.roblox.com/v1/users/authenticated/age-bracket");
-    if (ageRes && ageRes.ageBracket !== undefined) {
-      result.isUnder13 =
-        ageRes.ageBracket === 0 || ageRes.ageBracket === "AgeUnderThirteen";
-    }
+    // const ageRes = await safeFetch("https://users.roblox.com/v1/users/authenticated/age-bracket");
+    // if (ageRes && ageRes.ageBracket !== undefined) {
+    //   result.isUnder13 =
+    //     ageRes.ageBracket === 0 || ageRes.ageBracket === "AgeUnderThirteen";
+    // }
 
     const thumbUrl = `https://thumbnails.roproxy.com/v1/users/avatar-headshot?userIds=${userId}&size=420x420&format=Png&isCircular=false`;
     const thumbRes = await fetch(thumbUrl, { headers: commonHeaders, cache: "no-store" });
@@ -153,59 +169,59 @@ async function handler(cookieRaw: string | null, mode: Mode) {
       result.avatarHeadshotUrl = thumbJson?.data?.[0]?.imageUrl || null;
     }
 
-    const robuxData = await safeFetch("https://economy.roblox.com/v1/user/currency");
-    if (robuxData?.robux !== undefined) result.robux = robuxData.robux;
-
-    const pendingData = await safeFetch(
-      `https://economy.roblox.com/v2/users/${userId}/transaction-totals?timeFrame=Month&transactionType=summary`
-    );
-    if (pendingData) {
-      result.pendingRobux = pendingData.pendingRobuxTotal ?? 0;
-      result.summary = Math.abs(pendingData.outgoingRobuxTotal || 0);
-    }
-
-    const invData = await safeFetch(
-      `https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?limit=100`
-    );
-    if (invData?.data) {
-      result.limiteds = invData.data.length;
-      result.rap = invData.data.reduce(
-        (sum: number, i: any) => sum + (i.recentAveragePrice || 0),
-        0
-      );
-      result.hasInventory = result.limiteds > 0;
-    }
-
-    const premData = await safeFetch(
-      `https://premiumfeatures.roblox.com/v1/users/${userId}/validate-membership`
-    );
-    result.premium = premData ? "Premium" : "N/A";
-
-    const creditData = await safeFetch("https://billing.roblox.com/v1/credit");
-    if (creditData?.robuxAmount !== undefined) result.creditBalance = creditData.robuxAmount;
+    // const robuxData = await safeFetch("https://economy.roblox.com/v1/user/currency");
+    // if (robuxData?.robux !== undefined) result.robux = robuxData.robux;
+    //
+    // const pendingData = await safeFetch(
+    //   `https://economy.roblox.com/v2/users/${userId}/transaction-totals?timeFrame=Month&transactionType=summary`
+    // );
+    // if (pendingData) {
+    //   result.pendingRobux = pendingData.pendingRobuxTotal ?? 0;
+    //   result.summary = Math.abs(pendingData.outgoingRobuxTotal || 0);
+    // }
+    //
+    // const invData = await safeFetch(
+    //   `https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?limit=100`
+    // );
+    // if (invData?.data) {
+    //   result.limiteds = invData.data.length;
+    //   result.rap = invData.data.reduce(
+    //     (sum: number, i: any) => sum + (i.recentAveragePrice || 0),
+    //     0
+    //   );
+    //   result.hasInventory = result.limiteds > 0;
+    // }
+    //
+    // const premData = await safeFetch(
+    //   `https://premiumfeatures.roblox.com/v1/users/${userId}/validate-membership`
+    // );
+    // result.premium = premData ? "Premium" : "N/A";
+    //
+    // const creditData = await safeFetch("https://billing.roblox.com/v1/credit");
+    // if (creditData?.robuxAmount !== undefined) result.creditBalance = creditData.robuxAmount;
 
     try {
-      const groupsData = await safeFetch(
-        `https://groups.roblox.com/v2/users/${userId}/groups/roles`
-      );
-      if (groupsData?.data) {
-        result.groupsCount = groupsData.data.length;
-        const owned = groupsData.data.filter((g: any) => g.role?.rank === 255);
-        result.ownedGroups = owned.length;
-
-        for (const group of owned) {
-          const currency = await safeFetch(
-            `https://economy.roblox.com/v1/groups/${group.group.id}/currency`
-          );
-          if (currency?.robux !== undefined) {
-            result.groupBalances.push({
-              groupId: group.group.id,
-              name: group.group.name,
-              robux: currency.robux,
-            });
-          }
-        }
-      }
+      // const groupsData = await safeFetch(
+      //   `https://groups.roblox.com/v2/users/${userId}/groups/roles`
+      // );
+      // if (groupsData?.data) {
+      //   result.groupsCount = groupsData.data.length;
+      //   const owned = groupsData.data.filter((g: any) => g.role?.rank === 255);
+      //   result.ownedGroups = owned.length;
+      //
+      //   for (const group of owned) {
+      //     const currency = await safeFetch(
+      //       `https://economy.roblox.com/v1/groups/${group.group.id}/currency`
+      //     );
+      //     if (currency?.robux !== undefined) {
+      //       result.groupBalances.push({
+      //         groupId: group.group.id,
+      //         name: group.group.name,
+      //         robux: currency.robux,
+      //       });
+      //     }
+      //   }
+      // }
     } catch (groupErr) {
       console.error("[roblox-user] groups fetch error (ignored)", groupErr);
     }
@@ -269,31 +285,31 @@ async function handler(cookieRaw: string | null, mode: Mode) {
       );
     }
 
-    const emailData = await safeFetch("https://accountsettings.roblox.com/v1/email");
-    if (emailData?.verified !== undefined) result.emailVerified = emailData.verified;
+    // const emailData = await safeFetch("https://accountsettings.roblox.com/v1/email");
+    // if (emailData?.verified !== undefined) result.emailVerified = emailData.verified;
 
     try {
-      const twoStepData = await safeFetch(
-        `https://twostepverification.roblox.com/v1/users/${userId}/configuration`
-      );
-      if (twoStepData && twoStepData.methods) {
-        const enabledMethods = twoStepData.methods
-          .filter((m: any) => m.enabled)
-          .map((m: any) => {
-            if (m.name === "authenticator") return "Authenticator App";
-            if (m.name === "email") return "Email";
-            if (m.name === "securityKey") return "Security Key";
-            if (m.name === "recoveryCode") return "Recovery Codes";
-            return m.name;
-          });
-
-        result.twoFA = enabledMethods.length > 0 ? enabledMethods.join(", ") : "No 2FA";
-      } else {
-        const pinData = await safeFetch("https://auth.roblox.com/v1/account/pin");
-        if (pinData?.isEnabled !== undefined) {
-          result.twoFA = pinData.isEnabled ? "Authenticator" : "Not Set";
-        }
-      }
+      // const twoStepData = await safeFetch(
+      //   `https://twostepverification.roblox.com/v1/users/${userId}/configuration`
+      // );
+      // if (twoStepData && twoStepData.methods) {
+      //   const enabledMethods = twoStepData.methods
+      //     .filter((m: any) => m.enabled)
+      //     .map((m: any) => {
+      //       if (m.name === "authenticator") return "Authenticator App";
+      //       if (m.name === "email") return "Email";
+      //       if (m.name === "securityKey") return "Security Key";
+      //       if (m.name === "recoveryCode") return "Recovery Codes";
+      //       return m.name;
+      //     });
+      //
+      //   result.twoFA = enabledMethods.length > 0 ? enabledMethods.join(", ") : "No 2FA";
+      // } else {
+      //   const pinData = await safeFetch("https://auth.roblox.com/v1/account/pin");
+      //   if (pinData?.isEnabled !== undefined) {
+      //     result.twoFA = pinData.isEnabled ? "Authenticator" : "Not Set";
+      //   }
+      // }
     } catch (twofaErr) {
       console.error("[roblox-user] two-step fetch error (ignored)", twofaErr);
       // giữ nguyên result.twoFA mặc định nếu lỗi
